@@ -229,11 +229,13 @@ function wrapWebpackPush(originalPush: PushFn): PushFn {
 
 // Early Hook Installation
 
-function installWebpackHook() {
+const CHUNK_GLOBAL_NAMES = ['webpackChunkwebapp', 'rspackChunkwebapp']
+
+function installWebpackHook(globalName: string) {
   let backingArray: Chunk[] | null = null
   let wrappedPush: PushFn | null = null
 
-  Object.defineProperty(global, 'webpackChunkwebapp', {
+  Object.defineProperty(global, globalName, {
     configurable: true,
     enumerable: true,
     get() {
@@ -260,7 +262,7 @@ function installWebpackHook() {
   })
 }
 
-installWebpackHook()
+for (const name of CHUNK_GLOBAL_NAMES) installWebpackHook(name)
 
 // When the 'load' event fires, all webpack chunks should be loaded
 export const webpackLoaded = new Promise<void>((resolve) => {
