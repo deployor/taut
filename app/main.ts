@@ -2,8 +2,9 @@
 // Checks loader preconditions then bootstraps
 
 import { bootstrap } from './bootstrap'
+import { normalizeBridge } from './bridgeCompat'
 
-export const MIN_BRIDGE_VERSION = 1
+export const MIN_BRIDGE_VERSION = 2
 
 function main() {
   const global = globalThis as any
@@ -45,7 +46,8 @@ function main() {
     return
   }
 
-  bootstrap(bridge)
+  const normalizedBridge = normalizeBridge(bridge)
+  bootstrap(normalizedBridge)
 }
 
 main()

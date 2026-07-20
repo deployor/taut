@@ -38,13 +38,13 @@ export function setupBridge(
     return {
       tautDir,
       plugins: path.join(tautDir, 'plugins'),
-      userPlugins: path.join(tautDir, 'plugins'),
+      userPlugins: path.join(tautDir, 'user-plugins'),
       config: configFile,
       userCss: userCssFile,
       display: {
         tautDir: dp(tautDir),
         plugins: dp(path.join(tautDir, 'plugins')),
-        userPlugins: dp(path.join(tautDir, 'plugins')),
+        userPlugins: dp(path.join(tautDir, 'user-plugins')),
         config: dp(configFile),
         userCss: dp(userCssFile),
       },
@@ -59,12 +59,36 @@ export function setupBridge(
 
   const configFile = path.join(config.configDir, 'config.jsonc')
   const userCssFile = path.join(config.configDir, 'user.css')
+  const userPluginsDir = path.join(config.configDir, 'user-plugins')
+
+  // must be safe as a filename too
+  const isSafePluginId = (id: string) =>
+    typeof id === 'string' &&
+    id.length > 0 &&
+    id.length <= 100 &&
+    !id.includes('/') &&
+    !id.includes('\\') &&
+    id !== '.' &&
+    id !== '..'
+  const userPluginFile = (id: string) => path.join(userPluginsDir, `${id}.js`)
+
+  // Generic blob storage, namespaces/keys are base64url-encoded into the path
+  const blobRoot = path.join(config.configDir, 'store')
+  const encodeSegment = (s: string) =>
+    Buffer.from(s, 'utf8').toString('base64url')
+  const decodeSegment = (s: string) =>
+    Buffer.from(s, 'base64url').toString('utf8')
+  const blobNamespaceDir = (namespace: string) =>
+    path.join(blobRoot, encodeSegment(namespace))
+  const blobKeyFile = (namespace: string, key: string) =>
+    path.join(blobNamespaceDir(namespace), `${encodeSegment(key)}.txt`)
 
   // Config/CSS watchers (set up once at startup)
   ipcMain.handle('taut:setup-watchers', async (event) => {
     const sender = event.sender
     try {
       await fs.mkdir(config.configDir, { recursive: true })
+      await fs.mkdir(userPluginsDir, { recursive: true })
 
       // Watch configDir for config.jsonc and user.css changes (inode-based)
       watch(config.configDir, async (_, filename) => {
@@ -80,6 +104,29 @@ export function setupBridge(
             sender.send('taut:user-css-changed', css)
           } catch {}
         }
+      })
+
+      // Watch user-plugins for added/edited/deleted plugin files
+      const userPluginWatchQueues = new Map<string, Promise<void>>()
+      watch(userPluginsDir, (_, filename) => {
+        if (!filename || !filename.endsWith('.js')) return
+        const id = filename.slice(0, -'.js'.length)
+        if (!isSafePluginId(id)) return
+        const previous = userPluginWatchQueues.get(id) ?? Promise.resolve()
+        const queued = previous.then(async () => {
+          try {
+            const code = await fs.readFile(userPluginFile(id), 'utf8')
+            sender.send('taut:user-plugin-changed', id, code)
+          } catch {
+            // File removed
+            sender.send('taut:user-plugin-changed', id, null)
+          }
+        })
+        userPluginWatchQueues.set(id, queued)
+        queued.finally(() => {
+          if (userPluginWatchQueues.get(id) === queued)
+            userPluginWatchQueues.delete(id)
+        })
       })
 
       // Send initial user.css if the file already exists
@@ -185,6 +232,91 @@ export function setupBridge(
       const secrets = await readSecrets()
       secrets[key] = value
       return writeSecrets(secrets)
+    },
+    listUserPlugins: async () => {
+      try {
+        const entries = await fs.readdir(userPluginsDir)
+        return entries
+          .filter((f) => f.endsWith('.js'))
+          .map((f) => f.slice(0, -'.js'.length))
+          .filter(isSafePluginId)
+      } catch {
+        return []
+      }
+    },
+    readUserPlugin: async (id) => {
+      if (!isSafePluginId(id)) return null
+      try {
+        return await fs.readFile(userPluginFile(id), 'utf8')
+      } catch {
+        return null
+      }
+    },
+    writeUserPlugin: async (id, code) => {
+      if (!isSafePluginId(id)) return false
+      try {
+        await fs.mkdir(userPluginsDir, { recursive: true })
+        await fs.writeFile(userPluginFile(id), code, 'utf8')
+        return true
+      } catch {
+        return false
+      }
+    },
+    deleteUserPlugin: async (id) => {
+      if (!isSafePluginId(id)) return false
+      try {
+        await fs.rm(userPluginFile(id), { force: true })
+        return true
+      } catch {
+        return false
+      }
+    },
+    blobList: async (namespace) => {
+      try {
+        const entries = await fs.readdir(blobNamespaceDir(namespace))
+        return entries
+          .filter((f) => f.endsWith('.txt'))
+          .map((f) => decodeSegment(f.slice(0, -'.txt'.length)))
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return []
+        throw err
+      }
+    },
+    blobRead: async (namespace, key) => {
+      try {
+        return await fs.readFile(blobKeyFile(namespace, key), 'utf8')
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null
+        throw err
+      }
+    },
+    blobWrite: async (namespace, key, value) => {
+      try {
+        await fs.mkdir(blobNamespaceDir(namespace), { recursive: true })
+        await fs.writeFile(blobKeyFile(namespace, key), value, 'utf8')
+        return true
+      } catch {
+        return false
+      }
+    },
+    blobDelete: async (namespace, key) => {
+      try {
+        await fs.rm(blobKeyFile(namespace, key), { force: true })
+        return true
+      } catch {
+        return false
+      }
+    },
+    blobClear: async (namespace) => {
+      try {
+        await fs.rm(blobNamespaceDir(namespace), {
+          recursive: true,
+          force: true,
+        })
+        return true
+      } catch {
+        return false
+      }
     },
     cookieGet: async (details) =>
       (await cookies().get({ url: details.url, name: details.name }))[0] ??

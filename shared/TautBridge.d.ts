@@ -36,6 +36,20 @@ export type TautPaths = {
 /** Cleanup function returned by subscription methods */
 export type Unsubscribe = () => void
 
+/** Generic string key/value store scoped to a caller-chosen namespace */
+export type BlobStore = {
+  /** List all keys currently stored in this namespace. */
+  list(): Promise<string[]>
+  /** Read a value, or null if not found. */
+  read(key: string): Promise<string | null>
+  /** Write (create or overwrite) a value. @returns true on success. */
+  write(key: string, value: string): Promise<boolean>
+  /** Delete a single key. @returns true on success. */
+  delete(key: string): Promise<boolean>
+  /** Delete every key in this namespace. @returns true on success. */
+  clear(): Promise<boolean>
+}
+
 export type TautCookie = {
   name: string
   value: string
@@ -153,6 +167,19 @@ export type TautBridge = {
   readSecret(key: string): Promise<string | null>
   /** Write a secret. @returns true on success. Added in bridgeVersion 2. */
   writeSecret(key: string, value: string): Promise<boolean>
+
+  /** Read-write store of pre-compiled user plugin code, keyed by plugin id. */
+  readonly userPlugins: {
+    list(): Promise<string[]>
+    read(id: string): Promise<string | null>
+    write(id: string, code: string): Promise<boolean>
+    delete(id: string): Promise<boolean>
+    /** Subscribe to external user plugin changes */
+    onChange(cb: (id: string, code: string | null) => void): Unsubscribe
+  }
+
+  /** Get a BlobStore scoped to a specific namespace */
+  blobStore(namespace: string): BlobStore
 
   /**
    * Paths to Taut directories and files

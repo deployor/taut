@@ -2,12 +2,29 @@
 // Implements TautBridge interface using GM_* APIs for userscript environment
 
 import { emptyConfig, defaultUserCss } from '../app/bundledData'
-import type { TautBridge, TautCookie, Unsubscribe } from '../shared/TautBridge'
+import type {
+  TautBridge,
+  TautCookie,
+  Unsubscribe,
+  BlobStore,
+} from '../shared/TautBridge'
 
 declare const __TAUT_LOADER_VERSION__: string
 
 declare function GM_getValue<T>(key: string, defaultValue?: T): T
 declare function GM_setValue(key: string, value: unknown): void
+declare function GM_listValues(): string[]
+declare function GM_deleteValue(key: string): void
+declare function GM_addValueChangeListener(
+  key: string,
+  callback: (
+    key: string,
+    oldValue: unknown,
+    newValue: unknown,
+    remote: boolean
+  ) => void
+): number
+declare function GM_removeValueChangeListener(listenerId: number): void
 declare function GM_xmlhttpRequest(details: {
   method?: string
   url: string
@@ -58,11 +75,82 @@ declare const GM_cookie:
 const CONFIG_KEY = 'taut-config'
 const USER_CSS_KEY = 'taut-user-css'
 const SECRET_PREFIX = 'taut-secret:'
+const USER_PLUGINS_KEY = 'taut-user-plugins'
 
-const configTextCallbacks = new Set<(text: string) => void>()
-const userCssCallbacks = new Set<(css: string) => void>()
+function makePrefixedBlobStore(prefix: string): BlobStore {
+  return {
+    async list() {
+      return GM_listValues()
+        .filter((k) => k.startsWith(prefix))
+        .map((k) => k.slice(prefix.length))
+    },
+    async read(key) {
+      return GM_getValue(prefix + key, null)
+    },
+    async write(key, value) {
+      try {
+        GM_setValue(prefix + key, value)
+        return true
+      } catch {
+        return false
+      }
+    },
+    async delete(key) {
+      try {
+        GM_deleteValue(prefix + key)
+        return true
+      } catch {
+        return false
+      }
+    },
+    async clear() {
+      try {
+        for (const k of GM_listValues()) {
+          if (k.startsWith(prefix)) GM_deleteValue(k)
+        }
+        return true
+      } catch {
+        return false
+      }
+    },
+  }
+}
+
+function makeBlobStore(namespace: string): BlobStore {
+  return makePrefixedBlobStore(`taut:blob:${encodeURIComponent(namespace)}:`)
+}
 
 const gmCookie = typeof GM_cookie !== 'undefined' ? GM_cookie : null
+const secretsBlob = makePrefixedBlobStore(SECRET_PREFIX)
+
+function validUserPlugins(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const result: Record<string, string> = Object.create(null)
+  for (const [id, code] of Object.entries(value)) {
+    if (typeof code === 'string') result[id] = code
+  }
+  return result
+}
+
+function readUserPlugins(): Record<string, string> {
+  return validUserPlugins(GM_getValue(USER_PLUGINS_KEY, {}))
+}
+
+async function updateUserPlugins(
+  update: (plugins: Record<string, string>) => void
+): Promise<boolean> {
+  if (!navigator.locks) return false
+  try {
+    return await navigator.locks.request('taut:user-plugins', async () => {
+      const plugins = readUserPlugins()
+      update(plugins)
+      GM_setValue(USER_PLUGINS_KEY, plugins)
+      return true
+    })
+  } catch {
+    return false
+  }
+}
 
 const cookies: TautBridge['cookies'] = gmCookie
   ? {
@@ -94,22 +182,56 @@ const cookies: TautBridge['cookies'] = gmCookie
 export const userscriptBridge: TautBridge = {
   loader: 'userscript' as const,
   loaderVersion: __TAUT_LOADER_VERSION__,
-  bridgeVersion: 2,
+  bridgeVersion: 3,
 
   cookies,
 
   async readSecret(key: string): Promise<string | null> {
-    return GM_getValue(SECRET_PREFIX + key, null)
+    return secretsBlob.read(key)
   },
 
   async writeSecret(key: string, value: string): Promise<boolean> {
-    try {
-      GM_setValue(SECRET_PREFIX + key, value)
-      return true
-    } catch {
-      return false
-    }
+    return secretsBlob.write(key, value)
   },
+
+  userPlugins: {
+    async list() {
+      return Object.keys(readUserPlugins())
+    },
+    async read(id) {
+      return readUserPlugins()[id] ?? null
+    },
+    async write(id, code) {
+      return updateUserPlugins((plugins) => {
+        plugins[id] = code
+      })
+    },
+    async delete(id) {
+      return updateUserPlugins((plugins) => {
+        delete plugins[id]
+      })
+    },
+    onChange(cb): Unsubscribe {
+      const listenerId = GM_addValueChangeListener(
+        USER_PLUGINS_KEY,
+        (_key, oldValue, newValue, remote) => {
+          if (!remote) return
+          const oldPlugins = validUserPlugins(oldValue)
+          const newPlugins = validUserPlugins(newValue)
+          for (const id of new Set([
+            ...Object.keys(oldPlugins),
+            ...Object.keys(newPlugins),
+          ])) {
+            if (oldPlugins[id] !== newPlugins[id])
+              cb(id, newPlugins[id] ?? null)
+          }
+        }
+      )
+      return () => GM_removeValueChangeListener(listenerId)
+    },
+  },
+
+  blobStore: makeBlobStore,
 
   warnOutdated() {
     alert(
@@ -142,8 +264,13 @@ export const userscriptBridge: TautBridge = {
   },
 
   onConfigTextChange(cb: (text: string) => void): Unsubscribe {
-    configTextCallbacks.add(cb)
-    return () => configTextCallbacks.delete(cb)
+    const listenerId = GM_addValueChangeListener(
+      CONFIG_KEY,
+      (_key, _oldValue, newValue, remote) => {
+        if (remote && typeof newValue === 'string') cb(newValue)
+      }
+    )
+    return () => GM_removeValueChangeListener(listenerId)
   },
 
   async readUserCss(): Promise<string> {
@@ -160,8 +287,13 @@ export const userscriptBridge: TautBridge = {
   },
 
   onUserCssChange(cb: (css: string) => void): Unsubscribe {
-    userCssCallbacks.add(cb)
-    return () => userCssCallbacks.delete(cb)
+    const listenerId = GM_addValueChangeListener(
+      USER_CSS_KEY,
+      (_key, _oldValue, newValue, remote) => {
+        if (remote && typeof newValue === 'string') cb(newValue)
+      }
+    )
+    return () => GM_removeValueChangeListener(listenerId)
   },
 
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

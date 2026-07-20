@@ -25,6 +25,7 @@ type Provider = {
 }
 
 export default class ClearURLs extends TautPlugin {
+  static readonly id = 'ClearURLs'
   static readonly pluginName = 'Clear URLs'
   static readonly description =
     'Strips tracking parameters from URLs before sending messages (rules from <https://github.com/ClearURLs/Rules|ClearURLs>)'
@@ -41,19 +42,16 @@ export default class ClearURLs extends TautPlugin {
     ttl: 7 * 24 * 60 * 60 * 1000,
   })
   private providers: Provider[] = []
-  private unregister = () => {}
 
-  start(): void {
-    this.cache.load()
+  async start() {
+    await this.cache.load()
+    if (this.api.signal.aborted) return
     this.loadRules()
-    this.unregister = this.api.onMessageSendDelta((delta) =>
-      this.cleanDelta(delta)
-    )
+    this.api.onMessageSendDelta((delta) => this.cleanDelta(delta))
     this.log('Started')
   }
 
   stop(): void {
-    this.unregister()
     this.providers = []
     this.log('Stopped')
   }
@@ -72,7 +70,8 @@ export default class ClearURLs extends TautPlugin {
 
     try {
       const response = await fetch(
-        'https://raw.githubusercontent.com/ClearURLs/Rules/master/data.min.json'
+        'https://raw.githubusercontent.com/ClearURLs/Rules/master/data.min.json',
+        { signal: this.api.signal }
       )
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = (await response.json()) as RulesData
@@ -84,6 +83,7 @@ export default class ClearURLs extends TautPlugin {
         'providers'
       )
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
       this.log('Failed to fetch rules:', e)
     }
   }

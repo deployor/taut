@@ -45,61 +45,55 @@ export type StoredAccount = {
   updatedAt: number
 }
 
+/**
+ * Must be called at the very top of bootstrap(), before any await and before
+ * Slack's webpack runs, so the token is in place when Slack boots
+ * Slack saves the token to localStorage in the unload handler, so we have to
+ * set it now
+ */
+export function applyPendingSwitch(): void {
+  let pendingJson: string | null
+  try {
+    pendingJson = localStorage.getItem(PENDING_SWITCH_KEY)
+  } catch {
+    return
+  }
+  if (!pendingJson) return
+  localStorage.removeItem(PENDING_SWITCH_KEY)
+
+  let account: StoredAccount
+  try {
+    account = JSON.parse(pendingJson)
+  } catch {
+    return
+  }
+  if (!account.team?.token) return
+
+  const localConfig = readLocalConfig()
+  localConfig.teams ??= {}
+  localConfig.teams[account.teamId] = {
+    ...localConfig.teams[account.teamId],
+    ...account.team,
+  }
+  localConfig.lastActiveTeamId = account.teamId
+  localConfig.orderedTeamIds ??= []
+  if (!localConfig.orderedTeamIds.includes(account.teamId))
+    localConfig.orderedTeamIds.push(account.teamId)
+  localStorage.setItem('localConfig_v2', JSON.stringify(localConfig))
+  console.log(`[Taut] Applied pending account switch to ${account.userId}`)
+}
+
 export class AccountSwitcher {
-  /** Whether this loader can switch accounts at all (cookie + secret store). */
+  /** Whether this loader can switch accounts at all (needs cookie access). */
   readonly supported: boolean
   private readonly cookies: TautBridge['cookies']
-  private readonly canSecrets: boolean
 
   constructor(private bridge: TautBridge) {
-    // feature detect
     this.cookies = bridge.cookies ?? null
-    this.canSecrets =
-      typeof bridge.readSecret === 'function' &&
-      typeof bridge.writeSecret === 'function'
-    this.supported = this.cookies != null && this.canSecrets
-  }
-
-  /**
-   * Must be called at the very top of bootstrap(), before any await and before
-   * Slack's webpack runs, so the token is in place when Slack boots
-   * Slack saves the token to localStorage in the unload handler, so we have to
-   * set it now
-   */
-  static applyPendingSwitch(): void {
-    let pendingJson: string | null
-    try {
-      pendingJson = localStorage.getItem(PENDING_SWITCH_KEY)
-    } catch {
-      return
-    }
-    if (!pendingJson) return
-    localStorage.removeItem(PENDING_SWITCH_KEY)
-
-    let account: StoredAccount
-    try {
-      account = JSON.parse(pendingJson)
-    } catch {
-      return
-    }
-    if (!account.team?.token) return
-
-    const localConfig = readLocalConfig()
-    localConfig.teams ??= {}
-    localConfig.teams[account.teamId] = {
-      ...localConfig.teams[account.teamId],
-      ...account.team,
-    }
-    localConfig.lastActiveTeamId = account.teamId
-    localConfig.orderedTeamIds ??= []
-    if (!localConfig.orderedTeamIds.includes(account.teamId))
-      localConfig.orderedTeamIds.push(account.teamId)
-    localStorage.setItem('localConfig_v2', JSON.stringify(localConfig))
-    console.log(`[Taut] Applied pending account switch to ${account.userId}`)
+    this.supported = this.cookies != null
   }
 
   private async load(): Promise<Record<string, StoredAccount>> {
-    if (!this.canSecrets) return {}
     try {
       return JSON.parse((await this.bridge.readSecret(SECRET_KEY)) || '{}')
     } catch {
@@ -108,7 +102,6 @@ export class AccountSwitcher {
   }
 
   private save(accounts: Record<string, StoredAccount>): Promise<boolean> {
-    if (!this.canSecrets) return Promise.resolve(false)
     return this.bridge.writeSecret(SECRET_KEY, JSON.stringify(accounts))
   }
 

@@ -18,6 +18,8 @@ export interface TautPluginConfig {
  * Plugins are instantiated in the browser context with access to the TautAPI.
  */
 export abstract class TautPlugin {
+  /** Must match config key, should match class name & filename */
+  static readonly id: string
   /** The display name of the plugin. */
   static readonly pluginName: string
   /** A short description of the plugin in mrkdwn format. */
@@ -35,16 +37,17 @@ export abstract class TautPlugin {
   ) {}
 
   /**
-   * Called when the plugin should start.
+   * Called when the plugin should start. Only await fast local initialization;
+   * run network work in the background and cancel it with `this.api.signal`.
    * Subclasses must implement this method.
    */
-  abstract start(): void
+  abstract start(): void | Promise<void>
 
   /**
-   * Called when the plugin should stop and clean up.
-   * Subclasses should override this to perform cleanup.
+   * Called when the plugin should stop and clean up non-TautAPI resources.
+   * TautAPI registrations are disposed automatically.
    */
-  stop(): void {
+  stop(): void | Promise<void> {
     // Default implementation does nothing
   }
 
@@ -64,6 +67,7 @@ export abstract class TautPlugin {
 export default TautPlugin
 export interface TautPluginConstructor {
   new (api: TautAPI, config: any): TautPlugin
+  readonly id: string
   readonly pluginName: string
   readonly description: string
   readonly authors: string

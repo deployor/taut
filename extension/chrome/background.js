@@ -3,6 +3,11 @@
 const CONFIG_KEY = 'taut-config'
 const CSS_KEY = 'taut-user-css'
 const SECRET_PREFIX = 'taut-secret:'
+const BACKGROUND_USER_PLUGIN_PREFIX = 'taut-user-plugin:'
+/** @param {string} namespace */
+const blobPrefix = (namespace) => `taut:blob:${encodeURIComponent(namespace)}:`
+/** @param {string} key */
+const blobKey = (key) => encodeURIComponent(key)
 
 /** @param {string} key @returns {Promise<string | undefined>} */
 const storageGet = (key) =>
@@ -92,6 +97,46 @@ const methods = {
   readSecret: async (key) => (await storageGet(SECRET_PREFIX + key)) ?? null,
   writeSecret: async (key, value) => {
     await storageSet(SECRET_PREFIX + key, value)
+    return true
+  },
+  listUserPlugins: async () => {
+    const all = await chrome.storage.local.get(null)
+    return Object.keys(all)
+      .filter((key) => key.startsWith(BACKGROUND_USER_PLUGIN_PREFIX))
+      .map((key) => key.slice(BACKGROUND_USER_PLUGIN_PREFIX.length))
+  },
+  readUserPlugin: async (id) =>
+    (await storageGet(BACKGROUND_USER_PLUGIN_PREFIX + id)) ?? null,
+  writeUserPlugin: async (id, code) => {
+    await storageSet(BACKGROUND_USER_PLUGIN_PREFIX + id, code)
+    return true
+  },
+  deleteUserPlugin: async (id) => {
+    await chrome.storage.local.remove(BACKGROUND_USER_PLUGIN_PREFIX + id)
+    return true
+  },
+  blobList: async (namespace) => {
+    const prefix = blobPrefix(namespace)
+    const all = await chrome.storage.local.get(null)
+    return Object.keys(all)
+      .filter((k) => k.startsWith(prefix))
+      .map((k) => decodeURIComponent(k.slice(prefix.length)))
+  },
+  blobRead: async (namespace, key) =>
+    (await storageGet(blobPrefix(namespace) + blobKey(key))) ?? null,
+  blobWrite: async (namespace, key, value) => {
+    await storageSet(blobPrefix(namespace) + blobKey(key), value)
+    return true
+  },
+  blobDelete: async (namespace, key) => {
+    await chrome.storage.local.remove(blobPrefix(namespace) + blobKey(key))
+    return true
+  },
+  blobClear: async (namespace) => {
+    const prefix = blobPrefix(namespace)
+    const all = await chrome.storage.local.get(null)
+    const keys = Object.keys(all).filter((k) => k.startsWith(prefix))
+    await chrome.storage.local.remove(keys)
     return true
   },
   cookieGet: (details) =>

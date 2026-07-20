@@ -7,6 +7,7 @@ const global = globalThis as any
 type IdvStatusType = 'eligible' | 'over_18' | 'unverified' | 'loading'
 
 export default class IdvStatus extends TautPlugin {
+  static readonly id = 'IdvStatus'
   static readonly pluginName = 'IDV Status'
   static readonly description =
     'Shows a red squiggle on users who are not IDV eligible'
@@ -24,16 +25,15 @@ export default class IdvStatus extends TautPlugin {
     maxSize: 5000,
   })
 
-  private unpatchBaseMessageSender = () => {}
-
-  start(): void {
+  async start() {
     this.log('Starting')
 
-    this.cache.load()
+    await this.cache.load()
+    if (this.api.signal.aborted) return
 
     const instance = this
 
-    this.unpatchBaseMessageSender = this.api.patchComponent<{
+    this.api.patchComponent<{
       botId?: string
       userId?: string
       className?: string
@@ -99,9 +99,6 @@ export default class IdvStatus extends TautPlugin {
   }
 
   stop(): void {
-    this.unpatchBaseMessageSender()
-    this.api.removeStyle('idv-status')
-
     delete global.tautIdvClearCache
 
     this.log('Stopped')
@@ -110,7 +107,8 @@ export default class IdvStatus extends TautPlugin {
   async fetchIdvStatus(userId: string): Promise<IdvStatusType> {
     return this.cache.fetch(userId, async () => {
       const response = await fetch(
-        `https://identity.hackclub.com/api/external/check?slack_id=${userId}`
+        `https://identity.hackclub.com/api/external/check?slack_id=${userId}`,
+        { signal: this.api.signal }
       )
       if (!response.ok)
         throw new Error(`HTTP error! status: ${response.status}`)

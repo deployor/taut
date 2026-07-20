@@ -49,6 +49,10 @@ export type ConfirmationModalProps = {
   onClose?: () => void
   submitButtonText?: string
   cancelButtonText?: string
+  submitButtonType?: 'primary' | 'danger'
+  showCancelButton?: boolean
+  showSubmitButton?: boolean
+  disableSubmitButton?: boolean
 }
 
 export type LabelProps = {

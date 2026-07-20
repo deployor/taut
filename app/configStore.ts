@@ -216,7 +216,7 @@ export class ConfigStore {
     return () => this.cssListeners.delete(listener)
   }
 
-  async updateConfigText(newText: string): Promise<void> {
+  async updateConfigText(newText: string): Promise<boolean> {
     const success = await this.bridge.writeConfigText(newText)
     if (success) {
       this.configText = newText
@@ -229,6 +229,7 @@ export class ConfigStore {
       success ? 'succeeded' : 'failed',
       newText
     )
+    return success
   }
 
   async updateUserCssText(newCss: string): Promise<void> {
@@ -244,7 +245,10 @@ export class ConfigStore {
     )
   }
 
-  async setPluginEnabled(pluginName: string, enabled: boolean): Promise<void> {
+  async setPluginEnabled(
+    pluginName: string,
+    enabled: boolean
+  ): Promise<boolean> {
     const edits = this.jsonc.modify(
       this.configText,
       ['plugins', pluginName, 'enabled'],
@@ -254,7 +258,7 @@ export class ConfigStore {
       }
     )
     const newText = this.jsonc.applyEdits(this.configText, edits)
-    await this.updateConfigText(newText)
+    return this.updateConfigText(newText)
   }
 
   // Inserts a plugin's default JSONC snippet if the plugin has no config entry yet.
@@ -273,20 +277,15 @@ export class ConfigStore {
         processed
       )
       if (newText === this.configText) return
-      try {
-        const parsed = this.parseConfig(newText)
-        if (parsed.plugins[pluginName] === undefined) {
-          throw new Error('Failed to insert plugin config snippet')
-        }
-        await this.updateConfigText(newText)
-      } catch (error) {
-        console.error(
-          `[Taut] ensurePluginConfig: Error occurred while inserting snippet for ${pluginName}:`,
-          error
-        )
+      const parsed = this.parseConfig(newText)
+      if (parsed.plugins[pluginName] === undefined) {
+        throw new Error('Failed to insert plugin config snippet')
+      }
+      if (!(await this.updateConfigText(newText))) {
+        throw new Error(`Failed to save config for plugin ${pluginName}`)
       }
     }
-    this.ensureConfigQueue = this.ensureConfigQueue.then(task)
+    this.ensureConfigQueue = this.ensureConfigQueue.catch(() => {}).then(task)
     return this.ensureConfigQueue
   }
 

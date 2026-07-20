@@ -23,9 +23,22 @@ window.addEventListener('message', async (event) => {
 })
 
 // Forward storage changes (this or another tab) to the page as events
+const CONTENT_USER_PLUGIN_PREFIX = 'taut-user-plugin:'
 browser.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return
   for (const [key, { newValue }] of Object.entries(changes)) {
+    if (key.startsWith(CONTENT_USER_PLUGIN_PREFIX)) {
+      window.postMessage({
+        __taut: true,
+        kind: 'event',
+        name: 'userPlugin.changed',
+        payload: {
+          id: key.slice(CONTENT_USER_PLUGIN_PREFIX.length),
+          code: newValue ?? null,
+        },
+      })
+      continue
+    }
     window.postMessage({
       __taut: true,
       kind: 'event',

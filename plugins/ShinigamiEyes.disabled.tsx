@@ -38,6 +38,7 @@ type AuditLog = {
 }
 
 export default class ShinigamiEyes extends TautPlugin {
+  static readonly id = 'ShinigamiEyes'
   static readonly pluginName = 'Shinigami Eyes'
   static readonly description =
     'Displays Hackatime trust level indicators next to user names in Slack'
@@ -62,9 +63,6 @@ export default class ShinigamiEyes extends TautPlugin {
     { ttl: 24 * 60 * 60 * 1000 }
   )
 
-  private unpatchBaseMessageSender = () => {}
-  private unpatchMemberProfileHoverCard = () => {}
-
   constructor(api: TautAPI, config: TautPluginConfig) {
     super(api, config)
     this.config = config as ShinigamiConfig
@@ -87,7 +85,7 @@ export default class ShinigamiEyes extends TautPlugin {
     // Only patch message sender to add trust level emoji if enabled in config
     if (this.config.nameEmojis !== false) {
       // Patch Message component to add trust level CSS classes
-      this.unpatchBaseMessageSender = this.api.patchComponent<{
+      this.api.patchComponent<{
         botId?: string
         userId?: string
         className?: string
@@ -125,12 +123,10 @@ export default class ShinigamiEyes extends TautPlugin {
           />
         )
       })
-    } else {
-      this.unpatchBaseMessageSender = () => {}
     }
 
     // Patch MemberProfileHoverCard to show trust level and audit logs
-    this.unpatchMemberProfileHoverCard = this.api.patchComponent<{
+    this.api.patchComponent<{
       memberId: string
       header?: React.ReactNode
     }>(
@@ -294,14 +290,6 @@ export default class ShinigamiEyes extends TautPlugin {
     this.log('Loaded successfully!')
   }
 
-  stop() {
-    this.unpatchBaseMessageSender()
-    this.unpatchMemberProfileHoverCard()
-    this.api.removeStyle('shinigami-eyes')
-
-    this.log('Stopped')
-  }
-
   // API Fetching
 
   async fetchTrustLevelsFromAPI(): Promise<void> {
@@ -378,7 +366,7 @@ export default class ShinigamiEyes extends TautPlugin {
   }
 
   async initializeTrustLevels(): Promise<void> {
-    this.cache.load()
+    await this.cache.load()
     const cached = this.cache.get('data')
     if (cached) {
       this.trustLevels = cached

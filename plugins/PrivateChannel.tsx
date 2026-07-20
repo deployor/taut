@@ -6,6 +6,7 @@ import { TautPlugin } from '$taut'
 type ChannelName = string | null
 
 export default class PrivateChannel extends TautPlugin {
+  static readonly id = 'PrivateChannel'
   static readonly pluginName = 'Private Channel'
   static readonly description = 'Shows the name or ID of private channels'
   static readonly defaultConfig = `
@@ -21,18 +22,17 @@ export default class PrivateChannel extends TautPlugin {
     maxSize: 5000,
   })
 
-  unpatchBaseMrkdwnChannel = () => {}
-
-  start() {
+  async start() {
     this.log('Started')
 
-    this.cache.load()
+    await this.cache.load()
+    if (this.api.signal.aborted) return
 
     const instance = this
 
     const SvgIcon = this.api.elements.SvgIcon
 
-    this.unpatchBaseMrkdwnChannel = this.api.patchComponent<{
+    this.api.patchComponent<{
       isNonExistent: boolean
       id: string
     }>('BaseMrkdwnChannel', (OriginalBaseMrkdwnChannel) => (props) => {
@@ -62,14 +62,11 @@ export default class PrivateChannel extends TautPlugin {
     })
   }
 
-  stop() {
-    this.unpatchBaseMrkdwnChannel()
-    this.log('Stopped')
-  }
-
   async fetchChannelName(id: string): Promise<ChannelName> {
     return this.cache.fetch(id, async () => {
-      const response = await fetch(`https://flaron.halceon.dev/cid/${id}`)
+      const response = await fetch(`https://flaron.halceon.dev/cid/${id}`, {
+        signal: this.api.signal,
+      })
       if (!response.ok)
         throw new Error(`HTTP error! status: ${response.status}`)
       const data = await response.json()

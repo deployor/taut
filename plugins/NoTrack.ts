@@ -33,6 +33,7 @@ function globToRegex(pattern: string): RegExp {
 const BLOCKED_RESPONSE = new Response('', { status: 200 })
 
 export default class NoTrack extends TautPlugin {
+  static readonly id = 'NoTrack'
   static readonly pluginName = 'No Tracking'
   static readonly description =
     "Blocks Slack's built-in tracking and analytics requests"

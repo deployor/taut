@@ -28,6 +28,7 @@ function orgKey(account: StoredAccount): string {
 }
 
 export default class AccountSwitcher extends TautPlugin {
+  static readonly id = 'AccountSwitcher'
   static readonly pluginName = 'Account Switcher'
   static readonly description =
     'Switch between saved accounts from the profile menu'
@@ -45,8 +46,6 @@ export default class AccountSwitcher extends TautPlugin {
 
   private SvgIcon = this.api.elements.SvgIcon
   private AccountRow: React.FC<AccountRowProps> = () => null
-  private unpatch = () => {}
-
   async start() {
     if (!this.api.accounts.supported) {
       this.log('Account switching is not supported by this loader; idle')
@@ -55,7 +54,7 @@ export default class AccountSwitcher extends TautPlugin {
 
     this.AccountRow = this.makeAccountRow()
 
-    this.unpatch = this.api.patchComponent<MenuFromTemplateProps>(
+    this.api.patchComponent<MenuFromTemplateProps>(
       'MenuFromTemplate',
       (Original: ComponentType<MenuFromTemplateProps>) =>
         (props: MenuFromTemplateProps) => {
@@ -84,16 +83,11 @@ export default class AccountSwitcher extends TautPlugin {
     this.log('Started')
   }
 
-  stop() {
-    this.unpatch()
-    this.unpatch = () => {}
-    this.log('Stopped')
-  }
-
   private async captureAndRefresh() {
     // The active team/token isn't always populated the moment we start, so
     // retry the capture a few times before giving up.
     for (let attempt = 0; attempt < 10; attempt++) {
+      if (this.api.signal.aborted) return
       try {
         const current = await this.api.accounts.captureCurrent()
         if (current) {
@@ -104,8 +98,19 @@ export default class AccountSwitcher extends TautPlugin {
       } catch (err) {
         this.log('Account capture failed', err)
       }
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      await new Promise<void>((resolve) => {
+        const onAbort = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+        const timer = setTimeout(() => {
+          this.api.signal.removeEventListener('abort', onAbort)
+          resolve()
+        }, 1000)
+        this.api.signal.addEventListener('abort', onAbort, { once: true })
+      })
     }
+    if (this.api.signal.aborted) return
     await this.refresh()
   }
 

@@ -4,14 +4,21 @@
 
 import { reactPromise, patchComponentPromise } from './slack/react'
 import { elementsAPIPromise, type ElementsAPI } from './api/elements'
+import { setStyle } from './api/css'
 import type { ConfigStore } from './configStore'
-import type { PluginManager } from './pluginManager'
+import type { PluginManager, PluginInfo } from './pluginManager'
 import { initMonaco, type Monaco } from './cdn'
 import { tautVersion } from './bundledData'
 
 type MonacoEditorInstance = ReturnType<Monaco['editor']['create']>
 
 let elements: ElementsAPI
+
+const SETTINGS_UI_CSS = `
+  .taut-inline-input {
+    margin-bottom: 0 !important;
+  }
+`
 
 export async function addSettingsTab(
   pluginManager: PluginManager,
@@ -20,6 +27,7 @@ export async function addSettingsTab(
   await reactPromise
 
   void initMonaco()
+  setStyle('settings-ui', SETTINGS_UI_CSS)
 
   elements = await elementsAPIPromise
   const patchComponent = await patchComponentPromise
@@ -363,57 +371,6 @@ function PluginList({
   configStore: ConfigStore
 }) {
   const pluginInfo = pluginManager.pluginInfoStore.use()
-  const [togglingPlugins, setTogglingPlugins] = React.useState<Set<string>>(
-    () => new Set()
-  )
-
-  const prevPluginInfoRef = React.useRef(pluginInfo)
-  const timeoutsRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map()
-  )
-
-  React.useEffect(() => {
-    const oldPluginInfo = prevPluginInfoRef.current
-    prevPluginInfoRef.current = pluginInfo
-    if (oldPluginInfo === pluginInfo) return
-
-    setTogglingPlugins((prev) => {
-      const next = new Set(prev)
-      for (const id of prev) {
-        const oldP = oldPluginInfo.find((p) => p.id === id)
-        const newP = pluginInfo.find((p) => p.id === id)
-        if (oldP && newP && oldP.enabled !== newP.enabled) {
-          next.delete(id)
-          const timeout = timeoutsRef.current.get(id)
-          if (timeout) {
-            clearTimeout(timeout)
-            timeoutsRef.current.delete(id)
-          }
-        }
-      }
-      return next
-    })
-  }, [pluginInfo])
-
-  const handleToggle = async (id: string, enabled: boolean) => {
-    setTogglingPlugins((prev) => new Set(prev).add(id))
-    await configStore.setPluginEnabled(id, enabled)
-
-    const existingTimeout = timeoutsRef.current.get(id)
-    if (existingTimeout) {
-      clearTimeout(existingTimeout)
-    }
-
-    const timeout = setTimeout(() => {
-      setTogglingPlugins((prev) => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
-      timeoutsRef.current.delete(id)
-    }, 5000)
-    timeoutsRef.current.set(id, timeout)
-  }
 
   return (
     <>
@@ -423,37 +380,321 @@ function PluginList({
         Installed Plugins:
       </div>
       <ul style={{ marginLeft: '0' }}>
-        {pluginInfo.map((info, index) => (
-          <li key={index} style={{ marginBottom: '12px', listStyle: 'none' }}>
-            <label style={{ display: 'flex', alignItems: 'start' }}>
-              <input
-                type="checkbox"
-                checked={
-                  !togglingPlugins.has(info.id) ? info.enabled : !info.enabled
-                }
-                disabled={togglingPlugins.has(info.id)}
-                onChange={(e) => handleToggle(info.id, e.target.checked)}
-                className="c-input_checkbox"
-                style={{
-                  marginRight: '8px',
-                  marginTop: '5px',
-                }}
-              />
-              <div>
-                <span style={{ fontWeight: 'bold' }}>{info.name}</span>
-                <div>
-                  <elements.MrkdwnElement text={info.description} />
-                </div>
-                <div>
-                  <small>
-                    <elements.MrkdwnElement text={`Authors: ${info.authors}`} />
-                  </small>
-                </div>
-              </div>
-            </label>
-          </li>
+        {pluginInfo.map((info) => (
+          <PluginRow
+            key={info.id}
+            info={info}
+            pluginManager={pluginManager}
+            configStore={configStore}
+          />
         ))}
       </ul>
+      {pluginManager.supportsUserPlugins && (
+        <div style={{ marginTop: '8px' }}>
+          <div style={{ fontWeight: 'bold' }}>Add a plugin</div>
+          <div style={{ marginTop: '8px' }}>
+            <ImportControls pluginManager={pluginManager} />
+          </div>
+        </div>
+      )}
     </>
+  )
+}
+
+function ErrorLine({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{ color: 'var(--sk_raspberry_red, #e01e5a)', fontSize: '12px' }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function PluginRow({
+  info,
+  pluginManager,
+  configStore,
+}: {
+  info: PluginInfo[number]
+  pluginManager: PluginManager
+  configStore: ConfigStore
+}) {
+  const [pendingEnabled, setPendingEnabled] = React.useState<boolean | null>(
+    null
+  )
+  const [toggleError, setToggleError] = React.useState<string | null>(null)
+  const [editing, setEditing] = React.useState(false)
+  const [confirmingDelete, setConfirmingDelete] = React.useState(false)
+  const [deleting, setDeleting] = React.useState(false)
+  const [deleteError, setDeleteError] = React.useState<string | null>(null)
+  const [clearing, setClearing] = React.useState<'storage' | 'cache' | null>(
+    null
+  )
+  const [clearError, setClearError] = React.useState<string | null>(null)
+  const pluginData = pluginManager.pluginDataStore.use()
+  const flags = pluginData[info.id]
+
+  React.useEffect(() => {
+    if (pendingEnabled !== null && info.enabled === pendingEnabled) {
+      setPendingEnabled(null)
+    }
+  }, [info.enabled, pendingEnabled])
+
+  // Any in-flight operation on this plugin, prevent race conditions
+  const busy = pendingEnabled !== null || deleting || clearing !== null
+
+  const handleToggle = async (enabled: boolean) => {
+    setPendingEnabled(enabled)
+    setToggleError(null)
+    const success = await configStore.setPluginEnabled(info.id, enabled)
+    if (!success) {
+      setToggleError('Failed to save config change')
+      setPendingEnabled(null)
+    } else {
+      setTimeout(() => {
+        setPendingEnabled((cur) => (cur === enabled ? null : cur))
+      }, 5000)
+    }
+  }
+
+  const handleDelete = async () => {
+    setConfirmingDelete(false)
+    setDeleting(true)
+    setDeleteError(null)
+    const result = await pluginManager.deleteUserPlugin(info.id)
+    setDeleting(false)
+    if (!result.ok) setDeleteError(`Failed to delete: ${result.error}`)
+  }
+
+  const handleClear = async (kind: 'storage' | 'cache') => {
+    setClearing(kind)
+    setClearError(null)
+    const result = await pluginManager.resetPluginNamespace(info.id, kind)
+    setClearing(null)
+    if (!result.ok) {
+      setClearError(
+        `Failed to clear ${kind === 'storage' ? 'data' : 'cache'}: ${result.error}`
+      )
+    }
+  }
+
+  return (
+    <li style={{ marginBottom: '12px', listStyle: 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'start', gap: '8px' }}>
+        <label
+          style={{ display: 'flex', alignItems: 'start', flex: '1 1 auto' }}
+        >
+          <input
+            type="checkbox"
+            checked={pendingEnabled ?? info.enabled}
+            disabled={busy}
+            onChange={(e) => handleToggle(e.target.checked)}
+            className="c-input_checkbox"
+            style={{ marginRight: '8px', marginTop: '5px' }}
+          />
+          <div>
+            <span style={{ fontWeight: 'bold' }}>{info.name}</span>{' '}
+            {info.isUser && (
+              <span
+                style={{
+                  fontWeight: 'normal',
+                  color: 'var(--sk_foreground_low)',
+                }}
+              >
+                ({info.id})
+              </span>
+            )}
+            <div>
+              <elements.MrkdwnElement text={info.description} />
+            </div>
+            <div>
+              <small>
+                <elements.MrkdwnElement text={`Authors: ${info.authors}`} />
+              </small>
+            </div>
+            {toggleError && <ErrorLine>{toggleError}</ErrorLine>}
+            {deleteError && <ErrorLine>{deleteError}</ErrorLine>}
+            {clearError && <ErrorLine>{clearError}</ErrorLine>}
+          </div>
+        </label>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <elements.Tooltip tip="Clear cache">
+              <elements.Button
+                size="medium"
+                icon="refresh"
+                aria-label="Clear cache"
+                disabled={busy || !flags?.hasCache}
+                onClick={() => handleClear('cache')}
+              />
+            </elements.Tooltip>
+            <elements.Tooltip tip="Clear data">
+              <elements.Button
+                size="medium"
+                type="danger"
+                icon="clear"
+                aria-label="Clear data"
+                disabled={busy || !flags?.hasStorage}
+                onClick={() => handleClear('storage')}
+              />
+            </elements.Tooltip>
+
+            {pluginManager.supportsUserPlugins && info.isUser && (
+              <>
+                <elements.Tooltip tip="Edit plugin">
+                  <elements.Button
+                    size="medium"
+                    icon="edit"
+                    aria-label="Edit plugin"
+                    disabled={busy}
+                    onClick={() => setEditing((cur) => !cur)}
+                  />
+                </elements.Tooltip>
+                {confirmingDelete ? (
+                  <>
+                    <elements.Button
+                      size="small"
+                      type="danger"
+                      onClick={handleDelete}
+                    >
+                      Confirm
+                    </elements.Button>
+                    <elements.Button
+                      size="small"
+                      onClick={() => setConfirmingDelete(false)}
+                    >
+                      Cancel
+                    </elements.Button>
+                  </>
+                ) : (
+                  <elements.Tooltip tip="Delete plugin">
+                    <elements.Button
+                      size="medium"
+                      icon="trash"
+                      type="danger"
+                      aria-label="Delete plugin"
+                      disabled={busy}
+                      onClick={() => setConfirmingDelete(true)}
+                    />
+                  </elements.Tooltip>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      {pluginManager.supportsUserPlugins && info.isUser && editing && (
+        <div style={{ marginTop: '8px' }}>
+          <ImportControls
+            pluginManager={pluginManager}
+            replacingId={info.id}
+            onDone={() => setEditing(false)}
+          />
+        </div>
+      )}
+    </li>
+  )
+}
+
+function ImportControls({
+  pluginManager,
+  replacingId,
+  onDone,
+}: {
+  pluginManager: PluginManager
+  replacingId?: string
+  onDone?: () => void
+}) {
+  const bridge = window.TautBridge
+  const [url, setUrl] = React.useState('')
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const run = async (getCode: () => Promise<string>) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const code = await getCode()
+      const result = await pluginManager.installUserPlugin(code, replacingId)
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      setUrl('')
+      onDone?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const pickFile = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.js,text/javascript,application/javascript'
+    input.onchange = () => {
+      const file = input.files?.[0]
+      if (file) run(() => file.text())
+    }
+    input.click()
+  }
+
+  const importUrl = () => {
+    const urlString = url.trim()
+    if (!urlString) return
+    run(async () => {
+      const res = await bridge.fetch(urlString)
+      if (!res.ok) throw new Error(`Failed to fetch (HTTP ${res.status})`)
+      return res.text()
+    })
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <elements.Button size="small" onClick={pickFile} disabled={busy}>
+          Choose file...
+        </elements.Button>
+        <div style={{ flex: '1 1 auto' }}>
+          <elements.FormTextInput
+            size="small"
+            className="taut-inline-input"
+            value={url}
+            placeholder="or paste a URL to a .js file"
+            onChange={setUrl}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') importUrl()
+            }}
+            isDisabled={busy}
+          />
+        </div>
+        <elements.Button
+          size="small"
+          onClick={importUrl}
+          disabled={busy || !url.trim()}
+        >
+          {busy ? 'Importing...' : 'Import URL'}
+        </elements.Button>
+      </div>
+      {error && (
+        <div
+          style={{
+            marginTop: '4px',
+            color: 'var(--sk_raspberry_red, #e01e5a)',
+          }}
+        >
+          {error}
+        </div>
+      )}
+    </div>
   )
 }

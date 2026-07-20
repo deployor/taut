@@ -66,7 +66,7 @@ if (isClientPage) {
   contextBridge.exposeInMainWorld('TautBridge', {
     loader: 'electron' as const,
     loaderVersion: __TAUT_LOADER_VERSION__,
-    bridgeVersion: 2,
+    bridgeVersion: 3,
     PATHS: paths,
 
     cookies: {
@@ -79,6 +79,30 @@ if (isClientPage) {
     readSecret: (key) => call('readSecret', [key]).catch(() => null),
     writeSecret: (key, value) =>
       call('writeSecret', [key, value]).catch(() => false),
+
+    userPlugins: {
+      list: () => call('listUserPlugins', []).catch(() => []),
+      read: (id) => call('readUserPlugin', [id]).catch(() => null),
+      write: (id, code) =>
+        call('writeUserPlugin', [id, code]).catch(() => false),
+      delete: (id) => call('deleteUserPlugin', [id]).catch(() => false),
+      onChange(cb: (id: string, code: string | null) => void) {
+        const handler = (_: unknown, id: string, code: string | null) =>
+          cb(id, code)
+        ipcRenderer.on('taut:user-plugin-changed', handler)
+        return () =>
+          ipcRenderer.removeListener('taut:user-plugin-changed', handler)
+      },
+    },
+
+    blobStore: (namespace: string) => ({
+      list: () => call('blobList', [namespace]),
+      read: (key) => call('blobRead', [namespace, key]),
+      write: (key, value) =>
+        call('blobWrite', [namespace, key, value]).catch(() => false),
+      delete: (key) => call('blobDelete', [namespace, key]).catch(() => false),
+      clear: () => call('blobClear', [namespace]).catch(() => false),
+    }),
 
     start: () => ipcRenderer.invoke('taut:setup-watchers'),
 

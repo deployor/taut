@@ -19,25 +19,10 @@ type MemberLike = {
   profile?: { display_name?: string; real_name?: string; image_48?: string }
 }
 
-const STORAGE_KEY = 'taut_nicknames'
 const NICKNAME_ITEM_KEY = 'taut-set-nickname'
 
-function loadNicknames(): NicknameMap {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveNicknames(nicknames: NicknameMap) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nicknames))
-  } catch {}
-}
-
 export default class Nicknames extends TautPlugin {
+  static readonly id = 'Nicknames'
   static readonly pluginName = 'Nicknames'
   static readonly description = 'Locally nickname other members across Slack'
   static readonly authors = '<@U06UYA5GMB5>'
@@ -50,15 +35,30 @@ export default class Nicknames extends TautPlugin {
 
   private readonly MemberIdContext = React.createContext<string | null>(null)
 
-  private nicknames: NicknameMap = loadNicknames()
-  private unpatchOverflowMenu = () => {}
-  private unpatchMenuFromTemplate = () => {}
+  private nicknames: NicknameMap = {}
   private unpatchRedux = () => {}
 
-  start() {
+  async start() {
+    const keys = await this.api.storage.keys()
+    if (this.api.signal.aborted) return
+    if (keys.includes('nicknames')) {
+      this.nicknames = await this.api.storage.get<NicknameMap>('nicknames', {})
+    } else {
+      // One-time migration from the storage used before plugin-scoped storage.
+      try {
+        const legacy = JSON.parse(
+          localStorage.getItem('taut_nicknames') || '{}'
+        ) as unknown
+        if (legacy && typeof legacy === 'object' && !Array.isArray(legacy)) {
+          this.nicknames = legacy as NicknameMap
+          await this.api.storage.set('nicknames', this.nicknames)
+        }
+      } catch {}
+    }
+    if (this.api.signal.aborted) return
     this.applyReduxPatch()
 
-    this.unpatchOverflowMenu = this.api.patchComponent<OverflowMenuProps>(
+    this.api.patchComponent<OverflowMenuProps>(
       'RimetoMemberProfileOverflowMenu',
       (Original) => (props) => (
         <this.MemberIdContext.Provider value={props.memberId ?? null}>
@@ -67,44 +67,36 @@ export default class Nicknames extends TautPlugin {
       )
     )
 
-    this.unpatchMenuFromTemplate =
-      this.api.patchComponent<MenuFromTemplateProps>(
-        'MenuFromTemplate',
-        (Original) => (props) => {
-          const memberId = React.useContext(this.MemberIdContext)
-          const template = props.template
-          if (memberId && Array.isArray(template)) {
-            const idx = template.findIndex(
-              (it) =>
-                typeof it?.label === 'string' &&
-                it.label.startsWith('Copy display name')
-            )
-            const already = template.some((it) => it?.key === NICKNAME_ITEM_KEY)
-            if (idx !== -1 && !already) {
-              const next = [
-                ...template.slice(0, idx + 1),
-                {
-                  key: NICKNAME_ITEM_KEY,
-                  label: 'Set nickname…',
-                  click: () => this.openNicknameModal(memberId),
-                },
-                ...template.slice(idx + 1),
-              ]
-              return <Original {...props} template={next} />
-            }
+    this.api.patchComponent<MenuFromTemplateProps>(
+      'MenuFromTemplate',
+      (Original) => (props) => {
+        const memberId = React.useContext(this.MemberIdContext)
+        const template = props.template
+        if (memberId && Array.isArray(template)) {
+          const idx = template.findIndex(
+            (it) =>
+              typeof it?.label === 'string' &&
+              it.label.startsWith('Copy display name')
+          )
+          const already = template.some((it) => it?.key === NICKNAME_ITEM_KEY)
+          if (idx !== -1 && !already) {
+            const next = [
+              ...template.slice(0, idx + 1),
+              {
+                key: NICKNAME_ITEM_KEY,
+                label: 'Set nickname…',
+                click: () => this.openNicknameModal(memberId),
+              },
+              ...template.slice(idx + 1),
+            ]
+            return <Original {...props} template={next} />
           }
-          return <Original {...props} />
         }
-      )
+        return <Original {...props} />
+      }
+    )
 
     this.log('Started')
-  }
-
-  stop() {
-    this.unpatchOverflowMenu()
-    this.unpatchMenuFromTemplate()
-    this.unpatchRedux()
-    this.log('Stopped')
   }
 
   private applyReduxPatch() {
@@ -131,7 +123,7 @@ export default class Nicknames extends TautPlugin {
     if (trimmed) next[userId] = trimmed
     else delete next[userId]
     this.nicknames = next
-    saveNicknames(next)
+    void this.api.storage.set('nicknames', next)
     this.applyReduxPatch()
   }
 

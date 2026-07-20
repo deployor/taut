@@ -23,6 +23,15 @@ export type DesktopRpc = {
   writeUserCss: (text: string) => Promise<boolean>
   readSecret: (key: string) => Promise<string | null>
   writeSecret: (key: string, value: string) => Promise<boolean>
+  listUserPlugins: () => Promise<string[]>
+  readUserPlugin: (id: string) => Promise<string | null>
+  writeUserPlugin: (id: string, code: string) => Promise<boolean>
+  deleteUserPlugin: (id: string) => Promise<boolean>
+  blobList: (namespace: string) => Promise<string[]>
+  blobRead: (namespace: string, key: string) => Promise<string | null>
+  blobWrite: (namespace: string, key: string, value: string) => Promise<boolean>
+  blobDelete: (namespace: string, key: string) => Promise<boolean>
+  blobClear: (namespace: string) => Promise<boolean>
   cookieGet: (details: {
     url: string
     name: string

@@ -38,19 +38,20 @@
     })
   }
 
-  const lastWritten = new Map()
   const configTextCallbacks = new Set()
   const userCssCallbacks = new Set()
+  const userPluginCallbacks = new Set()
 
   window.addEventListener('message', (e) => {
     const msg = e.data
-    if (!msg?.__taut || msg.kind !== 'event' || msg.name !== 'storage.changed')
-      return
-    const { key, newValue } = msg.payload
-    if (lastWritten.get(key) === newValue) {
-      lastWritten.delete(key)
+    if (!msg?.__taut || msg.kind !== 'event') return
+    if (msg.name === 'userPlugin.changed') {
+      const { id, code } = msg.payload
+      for (const cb of userPluginCallbacks) cb(id, code)
       return
     }
+    if (msg.name !== 'storage.changed') return
+    const { key, newValue } = msg.payload
     if (key === CONFIG_KEY) for (const cb of configTextCallbacks) cb(newValue)
     if (key === CSS_KEY) for (const cb of userCssCallbacks) cb(newValue)
   })
@@ -62,7 +63,7 @@
         '__TAUT_LOADER__'
       ),
     loaderVersion: '__TAUT_LOADER_VERSION__',
-    bridgeVersion: 2,
+    bridgeVersion: 3,
     PATHS: null,
 
     cookies: {
@@ -76,12 +77,35 @@
     writeSecret: (key, value) =>
       call('writeSecret', [key, value]).catch(() => false),
 
+    userPlugins: {
+      list: () => call('listUserPlugins', []).catch(() => []),
+      read: (id) => call('readUserPlugin', [id]).catch(() => null),
+      write: (id, code) =>
+        call('writeUserPlugin', [id, code]).catch(() => false),
+      delete: (id) => call('deleteUserPlugin', [id]).catch(() => false),
+      onChange(cb) {
+        userPluginCallbacks.add(cb)
+        return () => userPluginCallbacks.delete(cb)
+      },
+    },
+
+    blobStore(namespace) {
+      return {
+        list: () => call('blobList', [namespace]),
+        read: (key) => call('blobRead', [namespace, key]),
+        write: (key, value) =>
+          call('blobWrite', [namespace, key, value]).catch(() => false),
+        delete: (key) =>
+          call('blobDelete', [namespace, key]).catch(() => false),
+        clear: () => call('blobClear', [namespace]).catch(() => false),
+      }
+    },
+
     async start() {},
 
     readConfigText: () => call('readConfigText', []),
 
     writeConfigText(text) {
-      lastWritten.set(CONFIG_KEY, text)
       return call('writeConfigText', [text]).catch(() => false)
     },
 
@@ -93,7 +117,6 @@
     readUserCss: () => call('readUserCss', []),
 
     writeUserCss(text) {
-      lastWritten.set(CSS_KEY, text)
       return call('writeUserCss', [text]).catch(() => false)
     },
 
