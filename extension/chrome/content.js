@@ -22,7 +22,9 @@
     textContent: s.textContent,
     type: s.getAttribute('type'),
   }))
-  doc.querySelectorAll('script').forEach((s) => s.remove())
+  doc.querySelectorAll('script').forEach((s) => {
+    s.remove()
+  })
 
   // Inject: bridge-setup (sets window.TautBridge), then taut.js, then Slack's scripts
   const scriptError = (/** @type {string} */ url) =>
@@ -49,7 +51,7 @@
   }
 
   document.open()
-  document.write('<!DOCTYPE html>' + doc.documentElement.outerHTML)
+  document.write(`<!DOCTYPE html>${doc.documentElement.outerHTML}`)
   document.close()
 
   // Connect the bridge to the backend

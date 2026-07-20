@@ -1,7 +1,7 @@
 // Adds a "Switch account" submenu to the profile menu (above "Sign out") for
 // jumping between saved same-workspace accounts without re-logging in
 
-import { TautPlugin, type ComponentType, type StoredAccount } from '$taut'
+import { type ComponentType, type StoredAccount, TautPlugin } from '$taut'
 
 type MenuTemplateItem = {
   key: string
@@ -224,8 +224,8 @@ export default class AccountSwitcher extends TautPlugin {
             />
           )}
           {!isCurrent && (
-            <span
-              role="button"
+            <button
+              type="button"
               aria-label="Remove account"
               title="Remove account"
               onClick={(e) => {
@@ -245,6 +245,8 @@ export default class AccountSwitcher extends TautPlugin {
                 justifyContent: 'center',
                 cursor: 'pointer',
                 borderRadius: '4px',
+                border: 0,
+                padding: 0,
                 color: removeHovered ? '#fff' : 'var(--sk_error, #e01e5a)',
                 opacity: removeHovered ? 1 : 0.6,
                 background: removeHovered
@@ -255,7 +257,7 @@ export default class AccountSwitcher extends TautPlugin {
               }}
             >
               <SvgIcon name="trash-filled" size={16} inline />
-            </span>
+            </button>
           )}
         </span>
       )

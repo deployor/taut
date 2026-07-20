@@ -55,7 +55,7 @@ patchModuleExports((exports) => {
     if (typeof value !== 'function' || value.name !== 'createStore') continue
 
     const originalCreateStore = value
-    const hookedCreateStore = function (...args: any[]) {
+    const hookedCreateStore = (...args: any[]) => {
       const store = originalCreateStore(...args)
       try {
         wrapGetState(store)

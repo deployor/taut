@@ -2,8 +2,8 @@
 // Reads/writes taut-prefs.json in the Taut config directory.
 // Uses app.getPath('appData') which is NOT affected by the userData redirect in patch.ts.
 
-import { promises as fs } from 'fs'
-import path from 'path'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { app } from 'electron'
 
 declare const __TAUT_EMBEDDED__: boolean
@@ -26,13 +26,15 @@ interface TautPrefs {
 let cached: TautPrefs | null = null
 
 export async function loadPrefs(): Promise<TautPrefs> {
+  let loaded: TautPrefs
   try {
     const text = await fs.readFile(getPrefsPath(), 'utf8')
-    cached = JSON.parse(text)
+    loaded = JSON.parse(text)
   } catch {
-    cached = {}
+    loaded = {}
   }
-  return cached!
+  cached = loaded
+  return loaded
 }
 
 export async function savePrefs(prefs: Partial<TautPrefs>): Promise<void> {

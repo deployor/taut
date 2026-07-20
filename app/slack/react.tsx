@@ -3,10 +3,10 @@
 
 import {
   findExportPromise,
-  waitForExport,
+  findModuleId,
   forEachExport,
   getValueSource,
-  findModuleId,
+  waitForExport,
 } from './webpack'
 
 const global = globalThis as any
@@ -337,9 +337,9 @@ function resolveType(type: any, props: any): any {
   // __original opts a single render out of patching
   // the original component object is preferable, because
   // then multiple patches can be applied to the same component
-  const __original = props?.['__original']
+  const __original = props?.__original
   if (__original) {
-    delete props['__original']
+    delete props.__original
     return type
   }
 
@@ -372,7 +372,7 @@ function resolveType(type: any, props: any): any {
   return type
 }
 
-function patchComponent<P = {}>(
+function patchComponent<P = object>(
   matcher:
     | string
     | { displayName?: string; filter?: filter; component?: ComponentType<P> },

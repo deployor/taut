@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
+
 // Builds the main Taut app bundle
 
-import path from 'path'
-import fs from 'fs'
-import { mkdir } from 'fs/promises'
+import fs from 'node:fs'
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
 
 if (!('Bun' in globalThis)) {
   console.error('This script must be run with Bun.')
@@ -88,7 +89,7 @@ async function bundlePlugins(debug: boolean): Promise<Record<string, string>> {
     }
 
     let code = await result.outputs[0].text()
-    code = '(() => {\n' + code + '\n})()'
+    code = `(() => {\n${code}\n})()`
     code = code.replace(
       /export\s*{\s*(\w+)\s+as\s+default\s*};?/g,
       'return $1;'
@@ -114,9 +115,9 @@ async function bundleApp(
     minify: !debug,
     sourcemap: debug ? 'inline' : 'none',
     define: {
-      '__TAUT_BUNDLED_PLUGINS__': JSON.stringify(plugins),
-      '__TAUT_VERSION__': JSON.stringify(TAUT_VERSION),
-      'process': 'undefined',
+      __TAUT_BUNDLED_PLUGINS__: JSON.stringify(plugins),
+      __TAUT_VERSION__: JSON.stringify(TAUT_VERSION),
+      process: 'undefined',
       'import.meta.url': 'self.location.href',
     },
   })

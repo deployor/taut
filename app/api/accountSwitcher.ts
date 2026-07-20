@@ -24,9 +24,9 @@
 
 import type { TautBridge, TautCookie } from '../../shared/TautBridge'
 import {
-  readLocalConfig,
   getActiveTeam,
   type LocalConfigTeam,
+  readLocalConfig,
 } from './localConfig'
 
 const SLACK_URL = 'https://app.slack.com'
@@ -155,7 +155,7 @@ export class AccountSwitcher {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           // backend makes sure this _replaces_ the cookie jar
-          'Cookie': `d=${account.xoxd}`,
+          Cookie: `d=${account.xoxd}`,
         },
         body: `token=${encodeURIComponent(account.team.token)}`,
       })

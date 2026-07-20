@@ -31,8 +31,6 @@ export default class IdvStatus extends TautPlugin {
     await this.cache.load()
     if (this.api.signal.aborted) return
 
-    const instance = this
-
     this.api.patchComponent<{
       botId?: string
       userId?: string
@@ -46,7 +44,7 @@ export default class IdvStatus extends TautPlugin {
           if (!userId || isBotMessage) return null
           if (!userId.startsWith('U') && !userId.startsWith('W')) return null
           if (userId === 'USLACKBOT') return null
-          return instance.cache.get(userId) ?? 'loading'
+          return this.cache.get(userId) ?? 'loading'
         }
       )
 
@@ -55,8 +53,7 @@ export default class IdvStatus extends TautPlugin {
         if (!userId.startsWith('U') && !userId.startsWith('W')) return
         if (userId === 'USLACKBOT') return
 
-        instance
-          .fetchIdvStatus(userId)
+        this.fetchIdvStatus(userId)
           .then(setIdvStatus)
           .catch(() => {})
       }, [userId, isBotMessage])

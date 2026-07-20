@@ -1,7 +1,7 @@
 // Shows Hackatime trust level indicators next to user names in Slack
 // Broken because the Hackatime API changed
 
-import { TautPlugin, type TautPluginConfig, type TautAPI } from '$taut'
+import { type TautAPI, TautPlugin, type TautPluginConfig } from '$taut'
 
 const API_URL = 'https://hackatime.hackclub.com/api/admin/v1/execute'
 
@@ -80,8 +80,6 @@ export default class ShinigamiEyes extends TautPlugin {
 
     const MrkdwnElement = this.api.elements.MrkdwnElement
 
-    const instance = this
-
     // Only patch message sender to add trust level emoji if enabled in config
     if (this.config.nameEmojis !== false) {
       // Patch Message component to add trust level CSS classes
@@ -96,7 +94,7 @@ export default class ShinigamiEyes extends TautPlugin {
         const [trustLevel, setTrustLevel] = React.useState<trustLevel | null>(
           () => {
             if (!userId || isBotMessage) return null
-            return instance.trustLevels[userId] ?? null
+            return this.trustLevels[userId] ?? null
           }
         )
 
@@ -104,9 +102,9 @@ export default class ShinigamiEyes extends TautPlugin {
           if (!userId || isBotMessage) return
 
           // If we have a cached status, use it
-          if (instance.trustLevels[userId] !== undefined) {
-            if (trustLevel !== instance.trustLevels[userId]) {
-              setTrustLevel(instance.trustLevels[userId])
+          if (this.trustLevels[userId] !== undefined) {
+            if (trustLevel !== this.trustLevels[userId]) {
+              setTrustLevel(this.trustLevels[userId])
             }
           }
         }, [userId, isBotMessage])
@@ -133,7 +131,7 @@ export default class ShinigamiEyes extends TautPlugin {
       'MemberProfileHoverCard',
       (OriginalMemberProfileHoverCard) => (props) => {
         const memberId = props.memberId
-        const trustLevel = instance.trustLevels[memberId]
+        const trustLevel = this.trustLevels[memberId]
 
         const [auditLogs, setAuditLogs] = React.useState<AuditLog[] | null>(
           null
@@ -147,7 +145,7 @@ export default class ShinigamiEyes extends TautPlugin {
           let cancelled = false
           setIsLoading(true)
 
-          instance.fetchAuditLogs(memberId).then((logs) => {
+          this.fetchAuditLogs(memberId).then((logs) => {
             if (!cancelled) {
               console.log('[Taut] Fetched audit logs:', logs)
               setAuditLogs(logs)
@@ -315,7 +313,7 @@ export default class ShinigamiEyes extends TautPlugin {
         const response = await fetch(API_URL, {
           method: 'POST',
           headers: {
-            'authorization': `Bearer ${apiToken}`,
+            authorization: `Bearer ${apiToken}`,
             'content-type': 'application/json',
           },
           body: JSON.stringify({ query }),
@@ -395,7 +393,7 @@ export default class ShinigamiEyes extends TautPlugin {
       const userResponse = await fetch(API_URL, {
         method: 'POST',
         headers: {
-          'authorization': `Bearer ${apiToken}`,
+          authorization: `Bearer ${apiToken}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({ query: userQuery }),
@@ -432,7 +430,7 @@ export default class ShinigamiEyes extends TautPlugin {
       const logsResponse = await fetch(API_URL, {
         method: 'POST',
         headers: {
-          'authorization': `Bearer ${apiToken}`,
+          authorization: `Bearer ${apiToken}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({ query: logsQuery }),

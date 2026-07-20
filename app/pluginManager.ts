@@ -2,34 +2,33 @@
 // Runs in the browser page context
 // Loads and manages plugins via TautBridge
 
-import { findExportPromise, findByPropsPromise } from './slack/webpack'
-import {
-  reactPromise,
-  findComponentPromise,
-  patchComponentPromise,
-} from './slack/react'
-import { reduxPromise } from './slack/redux'
-import { membersPromise } from './slack/members'
-import { setStyle, removeStyle } from './api/css'
-import { deepEqual } from './helpers'
-import { setupMessageSendDelta } from './api/messageSend'
-import { bindCache } from './api/cache'
-import { ScopedStorage } from './api/pluginStorage'
-import { Store } from './api/store'
-import { AccountSwitcher } from './api/accountSwitcher'
-import { userAPI } from './api/userAPI'
-import { modalAPIPromise, dialogHelpersFor } from './api/modal'
-import { elementsAPIPromise } from './api/elements'
-
 import {
   TautPlugin,
-  type TautPluginConstructor,
   type TautPluginConfig,
+  type TautPluginConstructor,
 } from '../shared/Plugin'
-import type { TautBridge, BlobStore } from '../shared/TautBridge'
-import type { ConfigStore } from './configStore'
+import type { BlobStore, TautBridge } from '../shared/TautBridge'
+import { AccountSwitcher } from './api/accountSwitcher'
+import { bindCache } from './api/cache'
+import { removeStyle, setStyle } from './api/css'
+import { elementsAPIPromise } from './api/elements'
+import { setupMessageSendDelta } from './api/messageSend'
+import { dialogHelpersFor, modalAPIPromise } from './api/modal'
+import { ScopedStorage } from './api/pluginStorage'
+import { Store } from './api/store'
+import { userAPI } from './api/userAPI'
 import type { NormalizedBridge } from './bridgeCompat'
 import { initJsonc } from './cdn'
+import type { ConfigStore } from './configStore'
+import { deepEqual } from './helpers'
+import { membersPromise } from './slack/members'
+import {
+  findComponentPromise,
+  patchComponentPromise,
+  reactPromise,
+} from './slack/react'
+import { reduxPromise } from './slack/redux'
+import { findByPropsPromise, findExportPromise } from './slack/webpack'
 
 const PLUGIN_ID_RE = /^[A-Za-z0-9_.-]+$/
 const PLUGIN_LIFECYCLE_TIMEOUT_MS = 5_000
@@ -802,7 +801,7 @@ export class PluginManager {
     const store = this.bridge.userPlugins
     return this.runExclusive(id, async () => {
       const existing = this.plugins.get(id)
-      if (!existing || existing.source !== 'user') {
+      if (existing?.source !== 'user') {
         return { ok: false, error: 'User plugin not loaded' }
       }
       await this.stopRuntime(id, existing)

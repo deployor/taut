@@ -42,7 +42,9 @@
           textContent: s.textContent,
           type: s.getAttribute('type'),
         }))
-        doc.querySelectorAll('script').forEach((s) => s.remove())
+        doc.querySelectorAll('script').forEach((s) => {
+          s.remove()
+        })
 
         // Inject: bridge-setup (sets window.TautBridge), then taut.js, then Slack's scripts
         const scriptError = (/** @type {string} */ url) =>
@@ -69,7 +71,7 @@
         }
 
         filter.write(
-          encoder.encode('<!DOCTYPE html>' + doc.documentElement.outerHTML)
+          encoder.encode(`<!DOCTYPE html>${doc.documentElement.outerHTML}`)
         )
         filter.close()
       }
@@ -122,12 +124,14 @@
   function fetchWithCookie(url, init) {
     const headers = { ...(init?.headers || {}) }
     const cookie = Object.entries(headers).find(
-      ([k, v]) => k.toLowerCase() === 'cookie'
+      ([k, _v]) => k.toLowerCase() === 'cookie'
     )?.[1]
     if (!cookie) return fetch(url, { ...init, headers })
     Object.keys(headers)
       .filter((h) => h.toLowerCase() === 'cookie')
-      .forEach((h) => delete headers[h])
+      .forEach((h) => {
+        delete headers[h]
+      })
     headers['X-Taut-Cookie'] = cookie // moved into Cookie by the listener above
     return fetch(url, { ...init, headers, credentials: 'omit' })
   }

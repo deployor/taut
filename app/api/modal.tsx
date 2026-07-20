@@ -2,8 +2,8 @@
 // Gives access to use Slack's modal system
 
 import { reactPromise } from '../slack/react'
-import { findExportPromise } from '../slack/webpack'
 import { getReduxStore } from '../slack/redux'
+import { findExportPromise } from '../slack/webpack'
 import { elementsAPIPromise } from './elements'
 
 type RawModalHandle = { close: () => void; render: (props: unknown) => void }

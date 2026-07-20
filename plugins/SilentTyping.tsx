@@ -28,21 +28,17 @@ export default class SilentTyping extends TautPlugin {
   start(): void {
     this.suppressed = localStorage.getItem(SilentTyping.STORAGE_KEY) === 'true'
 
-    const instance = this
-
     for (const name of ['MessagePaneInput', 'InputContainer'] as const) {
       this.api.patchComponent<{
         currentUserStartedTyping?: () => void
         currentUserEndedTyping?: () => void
       }>(name, (Original) => (props) => {
-        const [isSuppressed, setIsSuppressed] = React.useState(
-          instance.suppressed
-        )
+        const [isSuppressed, setIsSuppressed] = React.useState(this.suppressed)
 
         React.useEffect(() => {
-          instance.listeners.add(setIsSuppressed)
+          this.listeners.add(setIsSuppressed)
           return () => {
-            instance.listeners.delete(setIsSuppressed)
+            this.listeners.delete(setIsSuppressed)
           }
         }, [])
 
@@ -62,15 +58,13 @@ export default class SilentTyping extends TautPlugin {
     const IconButtonBase = this.api.elements.IconButtonBase
     const SvgIcon = this.api.elements.SvgIcon
 
-    this.api.patchComponent<{}>('TextyButtons', (Original) => (props) => {
-      const [isSuppressed, setIsSuppressed] = React.useState(
-        instance.suppressed
-      )
+    this.api.patchComponent<object>('TextyButtons', (Original) => (props) => {
+      const [isSuppressed, setIsSuppressed] = React.useState(this.suppressed)
 
       React.useEffect(() => {
-        instance.listeners.add(setIsSuppressed)
+        this.listeners.add(setIsSuppressed)
         return () => {
-          instance.listeners.delete(setIsSuppressed)
+          this.listeners.delete(setIsSuppressed)
         }
       }, [])
 
@@ -94,7 +88,7 @@ export default class SilentTyping extends TautPlugin {
             <IconButtonBase
               aria-pressed={String(isSuppressed)}
               aria-label={label}
-              onClick={() => instance.setSuppressed(!isSuppressed)}
+              onClick={() => this.setSuppressed(!isSuppressed)}
               tabIndex={-1}
               size="smedium"
             >

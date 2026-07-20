@@ -1,9 +1,9 @@
 // Reads Slack member profiles from the redux store
 
-import { reactPromise } from './react'
-import { findExportPromise } from './webpack'
-import { reduxPromise, getReduxStore } from './redux'
 import { userAPI } from '../api/userAPI'
+import { reactPromise } from './react'
+import { getReduxStore, reduxPromise } from './redux'
+import { findExportPromise } from './webpack'
 
 export type SlackMember = {
   id?: string

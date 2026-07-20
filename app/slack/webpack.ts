@@ -34,7 +34,7 @@ function registerExportOwner(moduleId: string, exports: any) {
     __webpackExportOwners.set(exports, moduleId)
   }
   for (const key in exports) {
-    if (!Object.prototype.hasOwnProperty.call(exports, key)) continue
+    if (!Object.hasOwn(exports, key)) continue
     try {
       const value = exports[key]
       if (
@@ -59,7 +59,7 @@ function matchExportOrProps(exports: any, matcher: SimpleMatcher): any {
   if (matcher(exports)) return exports
   if (exports && typeof exports === 'object') {
     for (const key in exports) {
-      if (!Object.prototype.hasOwnProperty.call(exports, key)) continue
+      if (!Object.hasOwn(exports, key)) continue
       try {
         if (matcher(exports[key])) return exports[key]
       } catch {}
@@ -79,10 +79,8 @@ const pendingMatchers = new Map<
  * Wait for a webpack export matching the given filter to be loaded.
  * Resolves immediately if already found, otherwise waits for it to appear.
  */
-export function waitForExport<T extends any>(
-  matcher: ExportMatcher<T>
-): Promise<T>
-export function waitForExport<T extends any>(matcher: SimpleMatcher): Promise<T>
+export function waitForExport<T>(matcher: ExportMatcher<T>): Promise<T>
+export function waitForExport<T>(matcher: SimpleMatcher): Promise<T>
 export function waitForExport(matcher: SimpleMatcher): Promise<any> {
   // Check existing exports first
   for (const [_id, exp] of __webpackModuleRegistry) {
@@ -145,7 +143,7 @@ export function forEachExport(
 
 // Module Exports Patching
 
-type ModuleExportsPatcher = (exports: any, moduleId: string) => any | void
+type ModuleExportsPatcher = (exports: any, moduleId: string) => any | undefined
 const moduleExportsPatchers = new Set<ModuleExportsPatcher>()
 
 export function patchModuleExports(patcher: ModuleExportsPatcher): void {
@@ -301,7 +299,7 @@ function findExport(filter: filter, all = false) {
       }
     } catch {}
     for (const key in exp) {
-      if (!Object.prototype.hasOwnProperty.call(exp, key)) continue
+      if (!Object.hasOwn(exp, key)) continue
       try {
         const candidate = exp[key]
         if (filter(candidate)) {

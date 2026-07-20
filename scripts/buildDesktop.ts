@@ -1,15 +1,16 @@
 #!/usr/bin/env bun
+
 // Builds and packages the Taut desktop app with electron-builder
 
-import path from 'path'
-import { cp, mkdir, rm, rename, readFile, writeFile } from 'fs/promises'
-import { existsSync } from 'fs'
-import { execFileSync } from 'child_process'
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import {
-  build as electronBuild,
-  Platform,
   Arch,
   type Configuration,
+  build as electronBuild,
+  Platform,
 } from 'electron-builder'
 
 if (!('Bun' in globalThis)) {
@@ -86,7 +87,7 @@ interface PlatformDef {
 }
 
 const PLATFORMS: Record<PlatformKey, PlatformDef> = {
-  'mac': {
+  mac: {
     platform: Platform.MAC,
     os: 'mac',
     targets: ['dmg'],
@@ -100,7 +101,7 @@ const PLATFORMS: Record<PlatformKey, PlatformDef> = {
     archs: [Arch.x64],
     nameArch: '-x64',
   },
-  'win': {
+  win: {
     platform: Platform.WINDOWS,
     os: 'win',
     targets: ['nsis'],
@@ -114,7 +115,7 @@ const PLATFORMS: Record<PlatformKey, PlatformDef> = {
     archs: [Arch.arm64],
     nameArch: '-arm',
   },
-  'linux': {
+  linux: {
     platform: Platform.LINUX,
     os: 'linux',
     targets: ['AppImage'],
@@ -368,7 +369,7 @@ const combos = getCombos()
 const byVariant = new Map<Variant, Set<PlatformKey>>()
 for (const { platform, variant } of combos) {
   if (!byVariant.has(variant)) byVariant.set(variant, new Set())
-  byVariant.get(variant)!.add(platform)
+  byVariant.get(variant)?.add(platform)
 }
 
 try {

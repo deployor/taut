@@ -3,8 +3,8 @@
 // Uses jsonc-parser for safe JSONC modifications that preserve comments
 
 import type { TautBridge } from '../shared/TautBridge'
-import { initJsonc, type JsoncParser, type JsoncNode } from './cdn'
-import { emptyConfig, defaultUserCss } from './bundledData'
+import { defaultUserCss, emptyConfig } from './bundledData'
+import { initJsonc, type JsoncNode, type JsoncParser } from './cdn'
 
 function processSnippet(raw: string): string {
   const lines = raw.split('\n')
@@ -15,15 +15,15 @@ function processSnippet(raw: string): string {
   const trimmed = lines.slice(start, end + 1)
   const minIndent = trimmed.reduce((min, line) => {
     if (!line.trim()) return min
-    return Math.min(min, line.match(/^( *)/)![1].length)
+    return Math.min(min, (line.match(/^( *)/)?.[1] ?? '').length)
   }, Infinity)
-  const dedent = isFinite(minIndent) ? minIndent : 0
+  const dedent = Number.isFinite(minIndent) ? minIndent : 0
   return trimmed.map((line) => line.slice(dedent)).join('\n')
 }
 
 function lineLeadingSpaces(text: string, pos: number): string {
   const lineStart = text.lastIndexOf('\n', pos - 1) + 1
-  return text.slice(lineStart, pos).match(/^( *)/)![1]
+  return text.slice(lineStart, pos).match(/^( *)/)?.[1] ?? ''
 }
 
 function detectIndent(configText: string, objectNode: JsoncNode): string {
@@ -42,9 +42,9 @@ function detectIndent(configText: string, objectNode: JsoncNode): string {
       )
     )
   ) {
-    return objectLineIndent + '  '
+    return `${objectLineIndent}  `
   }
-  return lineLeadingSpaces(configText, closingPos) + '  '
+  return `${lineLeadingSpaces(configText, closingPos)}  `
 }
 
 function insertSnippetIntoPlugins(
@@ -58,7 +58,7 @@ function insertSnippetIntoPlugins(
   if (!tree) return configText
 
   const pluginsNode = jsonc.findNodeAtLocation(tree, ['plugins'])
-  if (!pluginsNode || pluginsNode.type !== 'object') return configText
+  if (pluginsNode?.type !== 'object') return configText
 
   const indent = detectIndent(configText, pluginsNode)
   // Re-scale snippet indentation from its own unit to the config's unit.
@@ -69,11 +69,13 @@ function insertSnippetIntoPlugins(
     const spaces = line.match(/^( +)/)
     return spaces ? Math.min(min, spaces[1].length) : min
   }, Infinity)
-  const effectiveSnippetUnit = isFinite(snippetUnit) ? snippetUnit : configUnit
+  const effectiveSnippetUnit = Number.isFinite(snippetUnit)
+    ? snippetUnit
+    : configUnit
   const indented = snippetLines
     .map((line) => {
       if (!line.trim()) return ''
-      const spaces = line.match(/^( *)/)![1].length
+      const spaces = (line.match(/^( *)/)?.[1] ?? '').length
       const level = Math.round(spaces / effectiveSnippetUnit)
       return indent + ' '.repeat(level * configUnit) + line.trimStart()
     })

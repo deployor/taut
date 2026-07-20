@@ -2,13 +2,13 @@
 // Adds a "Taut" tab to Slack's Preferences dialog
 // Shows installed plugins, config info, and credits
 
-import { reactPromise, patchComponentPromise } from './slack/react'
-import { elementsAPIPromise, type ElementsAPI } from './api/elements'
 import { setStyle } from './api/css'
-import type { ConfigStore } from './configStore'
-import type { PluginManager, PluginInfo } from './pluginManager'
-import { initMonaco, type Monaco } from './cdn'
+import { type ElementsAPI, elementsAPIPromise } from './api/elements'
 import { tautVersion } from './bundledData'
+import { initMonaco, type Monaco } from './cdn'
+import type { ConfigStore } from './configStore'
+import type { PluginInfo, PluginManager } from './pluginManager'
+import { patchComponentPromise, reactPromise } from './slack/react'
 
 type MonacoEditorInstance = ReturnType<Monaco['editor']['create']>
 
@@ -34,12 +34,12 @@ export async function addSettingsTab(
 
   patchComponent<{
     tabs: {
-      'label': React.ReactElement
-      'content': React.ReactElement
-      'svgIcon': {
+      label: React.ReactElement
+      content: React.ReactElement
+      svgIcon: {
         name: string
       }
-      'id'?: string
+      id?: string
       'aria-labelledby'?: string
       'aria-label'?: string
     }[]
@@ -51,15 +51,15 @@ export async function addSettingsTab(
     const tabs = [...props.tabs]
     if (tabs[tabs.length - 1]?.id === 'advanced') {
       tabs.push({
-        'id': 'taut',
-        'label': <>Taut</>,
-        'content': (
+        id: 'taut',
+        label: <>Taut</>,
+        content: (
           <TautSettings
             pluginManager={pluginManager}
             configStore={configStore}
           />
         ),
-        'svgIcon': { name: 'code' },
+        svgIcon: { name: 'code' },
         'aria-label': 'taut',
       })
     }
@@ -90,8 +90,8 @@ export async function addSettingsTab(
 const LOADER_DISPLAY_NAMES: Record<string, string> = {
   'chrome-extension': 'Chrome extension',
   'firefox-extension': 'Firefox extension',
-  'electron': 'Desktop',
-  'userscript': 'Userscript',
+  electron: 'Desktop',
+  userscript: 'Userscript',
 }
 
 function TautSettings({

@@ -28,8 +28,6 @@ export default class PrivateChannel extends TautPlugin {
     await this.cache.load()
     if (this.api.signal.aborted) return
 
-    const instance = this
-
     const SvgIcon = this.api.elements.SvgIcon
 
     this.api.patchComponent<{
@@ -40,13 +38,12 @@ export default class PrivateChannel extends TautPlugin {
         const id = props.id
 
         const [name, setName] = React.useState<ChannelName | undefined>(() =>
-          instance.cache.get(id)
+          this.cache.get(id)
         )
 
         React.useEffect(() => {
           if (!id) return
-          instance
-            .fetchChannelName(id)
+          this.fetchChannelName(id)
             .then((fetched) => setName(fetched))
             .catch(() => {})
         }, [id])

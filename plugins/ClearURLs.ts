@@ -1,7 +1,7 @@
 // Strips tracking parameters from URLs before sending messages
 // Rules sourced from the ClearURLs project: https://github.com/ClearURLs/Rules
 
-import { TautPlugin, type Delta } from '$taut'
+import { type Delta, TautPlugin } from '$taut'
 
 const URL_RE = /(https?:\/\/[^\s<|]+[^<.,:;"'>)|\]\s])/g
 

@@ -1,6 +1,6 @@
 // Makes Slack links at the start of your messages invisible
 
-import { TautPlugin, type Delta } from '$taut'
+import { type Delta, TautPlugin } from '$taut'
 
 export default class InvisibleForward extends TautPlugin {
   static readonly id = 'InvisibleForward'
@@ -40,7 +40,7 @@ export default class InvisibleForward extends TautPlugin {
       }
 
       // Link
-      if (op.attributes && op.attributes.link) {
+      if (op.attributes?.link) {
         const url = op.attributes.link
         if (
           // Must be a Slack URL and the display text must match the URL

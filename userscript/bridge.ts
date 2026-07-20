@@ -1,12 +1,12 @@
 // Taut userscript backend
 // Implements TautBridge interface using GM_* APIs for userscript environment
 
-import { emptyConfig, defaultUserCss } from '../app/bundledData'
+import { defaultUserCss, emptyConfig } from '../app/bundledData'
 import type {
+  BlobStore,
   TautBridge,
   TautCookie,
   Unsubscribe,
-  BlobStore,
 } from '../shared/TautBridge'
 
 declare const __TAUT_LOADER_VERSION__: string

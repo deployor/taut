@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
+
 // Optimizes the source logos in place and regenerates the derived icons
 
-import path from 'path'
-import { mkdir } from 'fs/promises'
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
 import sharp from 'sharp'
 
 const ROOT = path.join(import.meta.dir, '..')

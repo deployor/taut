@@ -1,10 +1,10 @@
 // Taut Desktop Bridge
 // IPC handlers for config/CSS management and fetch relay
 
-import { promises as fs, watch } from 'fs'
-import { ipcMain, session, safeStorage, net } from 'electron'
-import os from 'os'
-import path from 'path'
+import { promises as fs, watch } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { ipcMain, net, safeStorage, session } from 'electron'
 import type { DesktopRpc } from './rpc'
 
 export interface BridgeConfig {
@@ -31,7 +31,7 @@ export function setupBridge(
   ipcMain.handle('taut:get-paths', () => {
     const home = os.homedir()
     const dp = (p: string) =>
-      p.startsWith(home) ? '~' + p.slice(home.length) : p
+      p.startsWith(home) ? `~${p.slice(home.length)}` : p
     const tautDir = config.configDir
     const configFile = path.join(tautDir, 'config.jsonc')
     const userCssFile = path.join(tautDir, 'user.css')
@@ -109,7 +109,7 @@ export function setupBridge(
       // Watch user-plugins for added/edited/deleted plugin files
       const userPluginWatchQueues = new Map<string, Promise<void>>()
       watch(userPluginsDir, (_, filename) => {
-        if (!filename || !filename.endsWith('.js')) return
+        if (!filename?.endsWith('.js')) return
         const id = filename.slice(0, -'.js'.length)
         if (!isSafePluginId(id)) return
         const previous = userPluginWatchQueues.get(id) ?? Promise.resolve()

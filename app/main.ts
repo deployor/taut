@@ -21,7 +21,8 @@ function main() {
   // Precondition 2: CSP must be gone (loader must have removed the meta tag)
   let cspOk = false
   try {
-    // eslint-disable-next-line no-eval
+    // biome-ignore lint/complexity/noCommaOperator: indirect eval is used intentionally
+    // biome-ignore lint/security/noGlobalEval: needed to check if eval is blocked by CSP
     ;(0, eval)('1')
     cspOk = true
   } catch {}

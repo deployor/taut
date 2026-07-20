@@ -1,7 +1,7 @@
 // Taut Elements Registry
 // Central place to find Slack's React components
 
-import { reactPromise, findComponentPromise } from '../slack/react'
+import { findComponentPromise, reactPromise } from '../slack/react'
 
 export type SvgIconProps = {
   name: string
@@ -31,14 +31,14 @@ export type TooltipProps = {
 }
 
 export type IconButtonBaseProps = {
-  'size'?: string
-  'className'?: string
+  size?: string
+  className?: string
   'aria-pressed'?: string
   'aria-label'?: string
   'data-qa'?: string
-  'onClick'?: () => void
-  'tabIndex'?: number
-  'children'?: React.ReactNode
+  onClick?: () => void
+  tabIndex?: number
+  children?: React.ReactNode
 }
 
 export type ConfirmationModalProps = {

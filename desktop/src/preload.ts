@@ -1,7 +1,7 @@
 // Taut Desktop Preload
 
 import type { TautBridge } from '../../shared/TautBridge'
-import type { RpcMethod, RpcArgs, RpcResult, SerialFetchInit } from './rpc'
+import type { RpcArgs, RpcMethod, RpcResult, SerialFetchInit } from './rpc'
 
 declare const __TAUT_LOADER_VERSION__: string
 
@@ -30,7 +30,8 @@ if (isClientPage) {
     const origPreload = await origPreloadPromise
     if (origPreload) {
       console.log('[Taut] Evaluating Slack original preload')
-      eval(origPreload) // eslint-disable-line no-eval
+      // biome-ignore lint/security/noGlobalEval: we have to eval the original preload that we replaced
+      eval(origPreload)
     }
   } catch (e) {
     console.error('[Taut] Failed to eval Slack preload:', e)
@@ -171,7 +172,9 @@ if (isClientPage) {
     textContent: s.textContent,
     type: s.getAttribute('type'),
   }))
-  doc.querySelectorAll('script').forEach((s) => s.remove())
+  doc.querySelectorAll('script').forEach((s) => {
+    s.remove()
+  })
 
   // Inject taut.js, then Slack's scripts
   const scriptError = (url: string) =>
@@ -193,7 +196,7 @@ if (isClientPage) {
 
   // Reconstruct the document
   document.open()
-  document.write('<!DOCTYPE html>' + doc.documentElement.outerHTML)
+  document.write(`<!DOCTYPE html>${doc.documentElement.outerHTML}`)
   document.close()
 
   console.log(

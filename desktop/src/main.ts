@@ -1,26 +1,26 @@
 // Taut Desktop Main Process
 // Orchestrates startup: loads prefs, patches electron, sets up session/bridge, loads Slack
 
+import { createRequire } from 'node:module'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   app,
-  dialog,
-  protocol,
   BrowserWindow,
-  session,
+  dialog,
   Notification,
+  protocol,
+  session,
 } from 'electron'
-import { createRequire } from 'module'
-import path from 'path'
-import { fileURLToPath } from 'url'
 import {
   installExtension,
   REACT_DEVELOPER_TOOLS,
 } from 'electron-devtools-installer'
-import { findSlackAsar } from './slackFinder.js'
-import { applyPatches, setOpenOptionsWindow } from './patch.js'
-import { setupSession } from './session.js'
 import { setupBridge } from './bridge.js'
-import { loadPrefs, getAppUrl, savePrefs, getNotifPrompted } from './prefs.js'
+import { applyPatches, setOpenOptionsWindow } from './patch.js'
+import { getAppUrl, getNotifPrompted, loadPrefs, savePrefs } from './prefs.js'
+import { setupSession } from './session.js'
+import { findSlackAsar } from './slackFinder.js'
 
 const cjsRequire = createRequire(import.meta.url)
 
@@ -158,7 +158,7 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   console.error('[Taut] Unhandled rejection:', reason)
 })
-app.on('before-quit', (e) => {
+app.on('before-quit', (_e) => {
   console.log('[Taut] App quitting (before-quit fired)')
 })
 app.on('window-all-closed', () => {

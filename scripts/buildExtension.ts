@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
+
 // Builds distributable extension packages from the sources in extension/
 
-import path from 'path'
-import { rm, mkdir, readFile } from 'fs/promises'
-import prettier from 'prettier'
+import { mkdir, readFile, rm } from 'node:fs/promises'
+import path from 'node:path'
 import { zipSync } from 'fflate'
 
 if (!('Bun' in globalThis)) {
@@ -103,10 +103,7 @@ for (const browser of BROWSERS) {
         manifest.web_accessible_resources = [...(war ?? []), 'taut.js']
       }
     }
-    const formatted = await prettier.format(JSON.stringify(manifest), {
-      ...(await prettier.resolveConfig(path.join(srcDir, 'manifest.json'))),
-      filepath: path.join(srcDir, 'manifest.json'),
-    })
+    const formatted = `${JSON.stringify(manifest, null, 2)}\n`
     entries['manifest.json'] = enc.encode(formatted)
 
     for (const file of ['content.js', 'background.js']) {

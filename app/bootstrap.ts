@@ -1,13 +1,13 @@
 // Taut Bootstrap
 // Wires up the backend, config store, and starts plugins
 
+import { applyPendingSwitch } from './api/accountSwitcher'
+import { setStyle } from './api/css'
+import type { NormalizedBridge } from './bridgeCompat'
+import { bundledPlugins } from './bundledData'
+import { ConfigStore } from './configStore'
 import { PluginManager } from './pluginManager'
 import { addSettingsTab } from './settings'
-import { ConfigStore } from './configStore'
-import { setStyle } from './api/css'
-import { bundledPlugins } from './bundledData'
-import { applyPendingSwitch } from './api/accountSwitcher'
-import type { NormalizedBridge } from './bridgeCompat'
 
 const global = globalThis as any
 
