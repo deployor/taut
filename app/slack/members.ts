@@ -29,6 +29,47 @@ type HydrateHook = (opts: {
   skip?: boolean
 }) => void
 
+// Mirror Slack's name logic (module CD4g `computeDerivedNames`)
+const deburr = (s: string): string =>
+  s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+const lc = (s: string): string => String(s).toLowerCase()
+
+/**
+ * return a copy of the `member` object with the given fields
+ * replaced
+ */
+export function modifyMemberObject(
+  member: SlackMember,
+  edits: {
+    /** both display name and real name */
+    name?: string
+    /** defaults to `name` */
+    displayName?: string
+    /** defaults to `name` */
+    realName?: string
+  }
+): SlackMember {
+  const profile = { ...member.profile }
+  const next: SlackMember = { ...member, profile }
+
+  const { name, displayName = name, realName = name } = edits
+  if (displayName !== undefined) {
+    profile.display_name = displayName
+    profile.display_name_normalized = deburr(displayName)
+    next._display_name_lc = lc(displayName)
+    next._display_name_normalized_lc = deburr(lc(displayName))
+  }
+  if (realName !== undefined) {
+    next.real_name = realName
+    profile.real_name = realName
+    profile.real_name_normalized = deburr(realName)
+    next._real_name_lc = lc(realName)
+    next._real_name_normalized_lc = deburr(lc(realName))
+  }
+
+  return next
+}
+
 export function getCachedMember(userId: string): SlackMember | undefined {
   return getReduxStore()?.getState().members?.[userId]
 }
@@ -100,7 +141,7 @@ export const membersPromise = (async () => {
     return member
   }
 
-  return { getCachedMember, getMember, useMember }
+  return { getCachedMember, getMember, useMember, modifyMemberObject }
 })()
 
 export type MembersAPI = Awaited<typeof membersPromise>

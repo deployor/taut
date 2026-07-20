@@ -36,7 +36,6 @@ export default class Nicknames extends TautPlugin {
   private readonly MemberIdContext = React.createContext<string | null>(null)
 
   private nicknames: NicknameMap = {}
-  private unpatchRedux = () => {}
 
   async start() {
     const keys = await this.api.storage.keys()
@@ -56,7 +55,12 @@ export default class Nicknames extends TautPlugin {
       } catch {}
     }
     if (this.api.signal.aborted) return
-    this.applyReduxPatch()
+
+    this.api.redux.patchSlice('members', (member, id) => {
+      const nickname = this.nicknames[id]
+      if (!nickname || !member?.profile) return member
+      return this.api.members.modifyMemberObject(member, { name: nickname })
+    })
 
     this.api.patchComponent<OverflowMenuProps>(
       'RimetoMemberProfileOverflowMenu',
@@ -99,24 +103,6 @@ export default class Nicknames extends TautPlugin {
     this.log('Started')
   }
 
-  private applyReduxPatch() {
-    this.unpatchRedux()
-    const nicknames = this.nicknames
-    this.unpatchRedux = this.api.redux.patchSlice('members', (member, key) => {
-      const nickname = nicknames[key]
-      if (!nickname || !member?.profile) return member
-      return {
-        ...member,
-        real_name: nickname,
-        profile: {
-          ...member.profile,
-          display_name: nickname,
-          real_name: nickname,
-        },
-      }
-    })
-  }
-
   private setNickname(userId: string, nickname: string) {
     const trimmed = nickname.trim()
     const next = { ...this.nicknames }
@@ -124,7 +110,7 @@ export default class Nicknames extends TautPlugin {
     else delete next[userId]
     this.nicknames = next
     void this.api.storage.set('nicknames', next)
-    this.applyReduxPatch()
+    this.api.redux.refresh()
   }
 
   private openNicknameModal(userId: string) {

@@ -95,19 +95,21 @@ export function getReduxStore(): SlackStore | null {
   return null
 }
 
+/** Invalidate patched reads and nudge connected views to re-read */
+export function refreshState(): void {
+  statePatchVersion++
+  try {
+    getReduxStore()?.dispatch({ type: '@@taut/PATCH_STATE' })
+  } catch {}
+}
+
 /** Register a read-time state transform */
 export function patchState(patch: StatePatch): () => void {
-  const update = () => {
-    statePatchVersion++
-    try {
-      getReduxStore()?.dispatch({ type: '@@taut/PATCH_STATE' })
-    } catch {}
-  }
   statePatches.add(patch)
-  update()
+  refreshState()
   return () => {
     statePatches.delete(patch)
-    update()
+    refreshState()
   }
 }
 
@@ -116,23 +118,50 @@ export function patchSlice(
   sliceName: string,
   mapEntry: (entry: any, key: string) => any
 ): () => void {
-  const cache = new WeakMap<object, any>()
+  let cache = new WeakMap<object, any>()
+  let cacheVersion = statePatchVersion
+  const transform = (value: any, key: PropertyKey): any => {
+    if (typeof key === 'symbol' || value === null || typeof value !== 'object')
+      return value
+    // A refresh (version bump) means the transform's inputs may have changed;
+    // drop memoized results so entries recompute with fresh data.
+    if (cacheVersion !== statePatchVersion) {
+      cache = new WeakMap()
+      cacheVersion = statePatchVersion
+    }
+    if (!cache.has(value)) cache.set(value, mapEntry(value, key as string))
+    return cache.get(value)
+  }
+  const describe = (target: object, key: PropertyKey) => {
+    const desc = Object.getOwnPropertyDescriptor(target, key)
+    if (!desc || !('value' in desc) || desc.configurable === false) return desc
+    return { ...desc, value: transform(desc.value, key) }
+  }
+  const protoProxies = new WeakMap<object, object>()
+  const proxyProto = (proto: object): object => {
+    let proxied = protoProxies.get(proto)
+    if (!proxied) {
+      proxied = new Proxy(proto, {
+        get: (target, key) => transform((target as any)[key], key),
+        getOwnPropertyDescriptor: describe,
+      })
+      protoProxies.set(proto, proxied)
+    }
+    return proxied
+  }
   return patchState((state) => {
     const slice = state?.[sliceName]
     if (!slice || typeof slice !== 'object') return state
     return {
       ...state,
       [sliceName]: new Proxy(slice, {
-        get(target, key) {
-          const value = target[key]
-          if (
-            typeof key === 'symbol' ||
-            value === null ||
-            typeof value !== 'object'
-          )
-            return value
-          if (!cache.has(value)) cache.set(value, mapEntry(value, key))
-          return cache.get(value)
+        get: (target, key) => transform((target as any)[key], key),
+        getOwnPropertyDescriptor: describe,
+        getPrototypeOf: (target) => {
+          const proto = Object.getPrototypeOf(target)
+          if (!proto || typeof proto !== 'object' || proto === Object.prototype)
+            return proto
+          return Object.isExtensible(target) ? proxyProto(proto) : proto
         },
       }),
     }
@@ -158,7 +187,13 @@ export const reduxPromise = (async () => {
     return React.useSyncExternalStore(subscribe, getSnapshot)
   }
 
-  return { getStore: getReduxStore, useReduxState, patchState, patchSlice }
+  return {
+    getStore: getReduxStore,
+    useReduxState,
+    patchState,
+    patchSlice,
+    refresh: refreshState,
+  }
 })()
 
 export type ReduxAPI = Awaited<typeof reduxPromise>
