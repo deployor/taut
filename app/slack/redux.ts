@@ -113,37 +113,75 @@ export function patchState(patch: StatePatch): () => void {
   }
 }
 
-/** Read-time transform of one slice's entries */
-export function patchSlice(
+const hasOwn = (obj: object, key: PropertyKey): boolean =>
+  typeof key !== 'symbol' && Object.hasOwn(obj, key)
+
+export function patchSlice<T = any>(
   sliceName: string,
-  mapEntry: (entry: any, key: string) => any
+  mapEntry: (key: string, entry: T | undefined) => T | undefined,
+  addedKeys?: () => Iterable<string>
 ): () => void {
-  let cache = new WeakMap<object, any>()
-  let cacheVersion = statePatchVersion
-  const transform = (value: any, key: PropertyKey): any => {
-    if (typeof key === 'symbol' || value === null || typeof value !== 'object')
-      return value
-    // A refresh (version bump) means the transform's inputs may have changed;
-    // drop memoized results so entries recompute with fresh data.
-    if (cacheVersion !== statePatchVersion) {
-      cache = new WeakMap()
-      cacheVersion = statePatchVersion
+  // A refresh (version bump) means the closure's inputs may have changed, so
+  // memoized results and the added-key set are dropped and recomputed.
+  let cache = new Map<string, { input: any; output: any }>()
+  let cacheVersion = -1
+  let added = new Set<string>()
+  const sync = () => {
+    if (cacheVersion === statePatchVersion) return
+    cache = new Map()
+    if (addedKeys) {
+      try {
+        added = new Set(addedKeys())
+      } catch {
+        added = new Set()
+      }
     }
-    if (!cache.has(value)) cache.set(value, mapEntry(value, key as string))
-    return cache.get(value)
+    cacheVersion = statePatchVersion
+  }
+  const run = (key: PropertyKey, value: any): any => {
+    if (typeof key !== 'string') return value
+    sync()
+    const hit = cache.get(key)
+    if (hit && hit.input === value) return hit.output
+    const output = mapEntry(key, value as T | undefined)
+    cache.set(key, { input: value, output })
+    return output
   }
   const describe = (target: object, key: PropertyKey) => {
     const desc = Object.getOwnPropertyDescriptor(target, key)
-    if (!desc || !('value' in desc) || desc.configurable === false) return desc
-    return { ...desc, value: transform(desc.value, key) }
+    if (desc) {
+      if (!('value' in desc) || desc.configurable === false) return desc
+      return { ...desc, value: run(key, desc.value) }
+    }
+    sync()
+    if (
+      typeof key === 'string' &&
+      added.has(key) &&
+      Object.isExtensible(target)
+    )
+      return {
+        value: run(key, undefined),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      }
+    return undefined
+  }
+  const ownKeysWith = (target: object): (string | symbol)[] => {
+    const keys = Reflect.ownKeys(target)
+    if (!addedKeys || !Object.isExtensible(target)) return keys
+    sync()
+    const extra = [...added].filter((k) => !hasOwn(target, k))
+    return extra.length ? [...keys, ...extra] : keys
   }
   const protoProxies = new WeakMap<object, object>()
   const proxyProto = (proto: object): object => {
     let proxied = protoProxies.get(proto)
     if (!proxied) {
       proxied = new Proxy(proto, {
-        get: (target, key) => transform((target as any)[key], key),
+        get: (target, key) => run(key, (target as any)[key]),
         getOwnPropertyDescriptor: describe,
+        ownKeys: ownKeysWith,
       })
       protoProxies.set(proto, proxied)
     }
@@ -155,17 +193,93 @@ export function patchSlice(
     return {
       ...state,
       [sliceName]: new Proxy(slice, {
-        get: (target, key) => transform((target as any)[key], key),
-        getOwnPropertyDescriptor: describe,
+        get: (target, key) => run(key, (target as any)[key]),
+        getOwnPropertyDescriptor: (target, key) => {
+          const desc = Object.getOwnPropertyDescriptor(target, key)
+          if (!desc || !('value' in desc) || desc.configurable === false)
+            return desc
+          return { ...desc, value: run(key, desc.value) }
+        },
         getPrototypeOf: (target) => {
           const proto = Object.getPrototypeOf(target)
           if (!proto || typeof proto !== 'object' || proto === Object.prototype)
             return proto
-          return Object.isExtensible(target) ? proxyProto(proto) : proto
+          return proxyProto(proto)
         },
       }),
     }
   })
+}
+
+type ThunkWrap = {
+  match: (value: any) => boolean
+  wrap: (original: (...args: any[]) => any) => (...args: any[]) => any
+}
+const thunkWraps = new Set<ThunkWrap>()
+
+const isThunkCreator = (v: any): boolean =>
+  typeof v === 'function' && (v as any).isThunkCreator === true
+
+function wrapThunkCreator(original: (...args: any[]) => any) {
+  const wrapper = (...args: any[]) => {
+    let creator = original
+    for (const { match, wrap } of thunkWraps) {
+      let matched = false
+      try {
+        matched = match(original)
+      } catch {}
+      if (!matched) continue
+      try {
+        creator = wrap(creator)
+      } catch {}
+    }
+    return creator(...args)
+  }
+  // Keep the creator's identity
+  for (const k of Object.keys(original)) {
+    try {
+      ;(wrapper as any)[k] = (original as any)[k]
+    } catch {}
+  }
+  return wrapper
+}
+
+patchModuleExports((exports) => {
+  if (isThunkCreator(exports)) return wrapThunkCreator(exports)
+  if (!exports || typeof exports !== 'object') return
+  let changed = false
+  const descriptors = Object.getOwnPropertyDescriptors(exports)
+  for (const key of Object.keys(exports)) {
+    let value: any
+    try {
+      value = exports[key]
+    } catch {
+      continue
+    }
+    if (!isThunkCreator(value)) continue
+    descriptors[key] = {
+      value: wrapThunkCreator(value),
+      enumerable: descriptors[key]?.enumerable ?? true,
+      configurable: true,
+      writable: true,
+    }
+    changed = true
+  }
+  if (changed) return Object.create(Object.getPrototypeOf(exports), descriptors)
+})
+
+/** Observe or alter a Slack redux thunk */
+export function patchThunk(
+  match: string | ThunkWrap['match'],
+  wrap: ThunkWrap['wrap']
+): () => void {
+  const matcher: ThunkWrap['match'] =
+    typeof match === 'string' ? (v) => v?.meta?.name === match : match
+  const entry: ThunkWrap = { match: matcher, wrap }
+  thunkWraps.add(entry)
+  return () => {
+    thunkWraps.delete(entry)
+  }
 }
 
 /** Reactively select from the store inside a React render */
@@ -192,6 +306,7 @@ export const reduxPromise = (async () => {
     useReduxState,
     patchState,
     patchSlice,
+    patchThunk,
     refresh: refreshState,
   }
 })()

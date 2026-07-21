@@ -56,7 +56,7 @@ export default class Nicknames extends TautPlugin {
     }
     if (this.api.signal.aborted) return
 
-    this.api.redux.patchSlice('members', (member, id) => {
+    this.api.redux.patchSlice('members', (id, member) => {
       const nickname = this.nicknames[id]
       if (!nickname || !member?.profile) return member
       return this.api.members.modifyMemberObject(member, { name: nickname })

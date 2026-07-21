@@ -21,6 +21,7 @@ import type { NormalizedBridge } from './bridgeCompat'
 import { initJsonc } from './cdn'
 import type { ConfigStore } from './configStore'
 import { deepEqual } from './helpers'
+import { channelsPromise } from './slack/channels'
 import { membersPromise } from './slack/members'
 import {
   findComponentPromise,
@@ -72,6 +73,7 @@ async function makeBaseTautAPI(bridge: TautBridge) {
     patchComponent,
     redux: await reduxPromise,
     members: await membersPromise,
+    channels: await channelsPromise,
     fetch: bridge.fetch.bind(bridge),
     userAPI,
     cookies: bridge.cookies ?? null,
@@ -190,6 +192,7 @@ function createScopedAPI(
       ...base.redux,
       patchState: tracked(base.redux.patchState),
       patchSlice: tracked(base.redux.patchSlice),
+      patchThunk: tracked(base.redux.patchThunk),
     },
     onMessageSendDelta: tracked(base.onMessageSendDelta),
     setStyle: (key: string, css: string) => {
