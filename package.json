@@ -18,6 +18,7 @@
   "scripts": {
     "build": "bun run build:taut && bun run build:extension && bun run build:userscript",
     "build:taut": "bun ./scripts/buildTaut.ts",
+    "build:user-plugin": "bun ./scripts/buildUserPlugin.ts",
     "build:extension": "bun ./scripts/buildExtension.ts",
     "build:userscript": "bun ./scripts/buildUserscript.ts",
     "build:desktop": "bun ./scripts/buildDesktop.ts",
