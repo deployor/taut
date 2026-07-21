@@ -201,17 +201,25 @@ export default class PrivateChannel extends TautPlugin {
         const run = (...args: unknown[]) => original(params)(...args)
         if (!query) return run
         const q = query.toLowerCase()
-        return async (...args: unknown[]) => {
-          const result = await run(...args)
-          const hasExact =
-            Array.isArray(result) &&
-            result.some((r) => {
-              const name = r?.item?.name ?? r?.name
-              return typeof name === 'string' && name.toLowerCase() === q
+        return (...args: unknown[]) => {
+          // Return Slack's search result untouched — never block the dropdown on
+          // flaron. If Slack has no channel matching this prefix, resolve from
+          // flaron in the BACKGROUND; the channel shows up on the next keystroke.
+          const result = run(...args)
+          Promise.resolve(result)
+            .then((items) => {
+              const covered =
+                Array.isArray(items) &&
+                items.some((r) => {
+                  const name = r?.item?.name ?? r?.name
+                  return (
+                    typeof name === 'string' && name.toLowerCase().startsWith(q)
+                  )
+                })
+              if (!covered) void this.resolveByName(query)
             })
-          if (hasExact) return result
-          const injected = await this.resolveByName(query)
-          return injected ? run(...args) : result
+            .catch(() => {})
+          return result
         }
       }
     )
