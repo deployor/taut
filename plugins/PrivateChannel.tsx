@@ -22,7 +22,7 @@ export default class PrivateChannel extends TautPlugin {
   static readonly defaultConfig = `
     // Lets you see and mention private channels you aren't in
     "PrivateChannel": {
-      "enabled": true
+      "enabled": false
     }
   `
   static readonly authors = '<@U06UYA5GMB5>'
