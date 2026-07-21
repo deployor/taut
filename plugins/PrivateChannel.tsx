@@ -192,37 +192,71 @@ export default class PrivateChannel extends TautPlugin {
           })
       }
     )
-  
+
     this.api.redux.patchThunk(
       'autocompleteChannels',
       (original) => (params) => {
         const query =
           typeof params?.query === 'string' ? params.query.trim() : ''
-        const run = (...args: unknown[]) => original(params)(...args)
-        if (!query) return run
+        if (!query) return original(params)
         const q = query.toLowerCase()
         return (...args: unknown[]) => {
-          // Return Slack's search result untouched — never block the dropdown on
-          // flaron. If Slack has no channel matching this prefix, resolve from
-          // flaron in the BACKGROUND; the channel shows up on the next keystroke.
-          const result = run(...args)
-          Promise.resolve(result)
-            .then((items) => {
-              const covered =
-                Array.isArray(items) &&
-                items.some((r) => {
-                  const name = r?.item?.name ?? r?.name
-                  return (
-                    typeof name === 'string' && name.toLowerCase().startsWith(q)
-                  )
-                })
-              if (!covered) void this.resolveByName(query)
+          const result = original(params)(...args)
+          return Promise.resolve(result).then((local) => {
+            // Slack's local tier, has a .promise to the remote tier
+            if (!Array.isArray(local)) return local
+            // Slack's remote tier (includes local too)
+            const slackRemote: unknown = (local as { promise?: unknown })
+              .promise
+
+            const merged = Promise.resolve(slackRemote).then(async (remote) => {
+              const base = Array.isArray(remote) ? remote : local
+              // If Slack found an exact match, don't bother looking up flaron
+              const covered = base.some((r) => {
+                const name = r?.item?.name || r?.name
+                return typeof name === 'string' && name.toLowerCase() === q
+              })
+              if (covered) return base
+              // let's check and add flaron shadows
+              const added = await this.resolveByName(query)
+              if (!added) return base // still no exact match, resolve
+              // we just added to the store, so re-run the original thunk to let slack's logic find it
+              const rerun = await original(params)(...args)
+              // (but no need to await its remote tier, the first run put it in the store)
+              return Array.isArray(rerun)
+                ? this.mergeChannelResults(base, rerun)
+                : base
             })
-            .catch(() => {})
-          return result
+
+            // sometimes local is a frozen empty array for some reason, so clone it
+            const fresh = local.slice() as unknown[] & { promise?: unknown }
+            fresh.promise = merged
+            return fresh
+          })
         }
       }
     )
+  }
+
+  /** Union two result lists, deduped by channel id (base entries win). */
+  private mergeChannelResults(
+    base: Array<{ item?: { id?: string }; id?: string }>,
+    extra: Array<{ item?: { id?: string }; id?: string }>
+  ) {
+    const seen = new Set<string>()
+    for (const r of base) {
+      const id = r?.item?.id ?? r?.id
+      if (id) seen.add(id)
+    }
+    const out = [...base]
+    for (const r of extra) {
+      const id = r?.item?.id ?? r?.id
+      if (id && !seen.has(id)) {
+        seen.add(id)
+        out.push(r)
+      }
+    }
+    return out
   }
 
   /** A grayed-out channel mention that shows a name/id */
