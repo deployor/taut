@@ -4,6 +4,7 @@
 
 import { setStyle } from './api/css'
 import { type ElementsAPI, elementsAPIPromise } from './api/elements'
+import { type ModalAPI, modalAPIPromise } from './api/modal'
 import { tautVersion } from './bundledData'
 import { initMonaco, type Monaco } from './cdn'
 import type { ConfigStore } from './configStore'
@@ -13,6 +14,7 @@ import { patchComponentPromise, reactPromise } from './slack/react'
 type MonacoEditorInstance = ReturnType<Monaco['editor']['create']>
 
 let elements: ElementsAPI
+let modal: ModalAPI
 
 const SETTINGS_UI_CSS = `
   .taut-inline-input {
@@ -29,7 +31,12 @@ export async function addSettingsTab(
   void initMonaco()
   setStyle('settings-ui', SETTINGS_UI_CSS)
 
-  elements = await elementsAPIPromise
+  const [resolvedElements, resolvedModal] = await Promise.all([
+    elementsAPIPromise,
+    modalAPIPromise,
+  ])
+  elements = resolvedElements
+  modal = resolvedModal
   const patchComponent = await patchComponentPromise
 
   patchComponent<{
@@ -424,8 +431,6 @@ function PluginRow({
     null
   )
   const [toggleError, setToggleError] = React.useState<string | null>(null)
-  const [editing, setEditing] = React.useState(false)
-  const [confirmingDelete, setConfirmingDelete] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [deleteError, setDeleteError] = React.useState<string | null>(null)
   const [clearing, setClearing] = React.useState<'storage' | 'cache' | null>(
@@ -459,7 +464,14 @@ function PluginRow({
   }
 
   const handleDelete = async () => {
-    setConfirmingDelete(false)
+    const confirmed = await modal.confirm({
+      title: `Delete ${info.name}?`,
+      body: 'This will permanently delete the user plugin and its stored data.',
+      confirmText: 'Delete',
+      danger: true,
+    })
+    if (!confirmed) return
+
     setDeleting(true)
     setDeleteError(null)
     const result = await pluginManager.deleteUserPlugin(info.id)
@@ -468,6 +480,15 @@ function PluginRow({
   }
 
   const handleClear = async (kind: 'storage' | 'cache') => {
+    const label = kind === 'storage' ? 'data' : 'cache'
+    const confirmed = await modal.confirm({
+      title: `Clear ${info.name} ${label}?`,
+      body: `This will permanently clear this plugin's ${label}.`,
+      confirmText: `Clear ${label}`,
+      danger: true,
+    })
+    if (!confirmed) return
+
     setClearing(kind)
     setClearError(null)
     const result = await pluginManager.resetPluginNamespace(info.id, kind)
@@ -477,6 +498,22 @@ function PluginRow({
         `Failed to clear ${kind === 'storage' ? 'data' : 'cache'}: ${result.error}`
       )
     }
+  }
+
+  const openEditor = () => {
+    let handle: ReturnType<ModalAPI['openModal']> = null
+    handle = modal.openModal({
+      title: `Edit ${info.name}`,
+      body: (
+        <ImportControls
+          pluginManager={pluginManager}
+          replacingId={info.id}
+          onDone={() => handle?.close()}
+        />
+      ),
+      submitText: 'Close',
+      showCancelButton: false,
+    })
   }
 
   return (
@@ -530,21 +567,25 @@ function PluginRow({
             <elements.Tooltip tip="Clear cache">
               <elements.Button
                 size="medium"
-                icon="refresh"
+                className="c-button--icon"
                 aria-label="Clear cache"
                 disabled={busy || !flags?.hasCache}
                 onClick={() => handleClear('cache')}
-              />
+              >
+                <elements.SvgIcon name="refresh" size={16} inline />
+              </elements.Button>
             </elements.Tooltip>
             <elements.Tooltip tip="Clear data">
               <elements.Button
                 size="medium"
                 type="danger"
-                icon="clear"
+                className="c-button--icon"
                 aria-label="Clear data"
                 disabled={busy || !flags?.hasStorage}
                 onClick={() => handleClear('storage')}
-              />
+              >
+                <elements.SvgIcon name="clear" size={16} inline />
+              </elements.Button>
             </elements.Tooltip>
 
             {pluginManager.supportsUserPlugins && info.isUser && (
@@ -552,54 +593,31 @@ function PluginRow({
                 <elements.Tooltip tip="Edit plugin">
                   <elements.Button
                     size="medium"
-                    icon="edit"
+                    className="c-button--icon"
                     aria-label="Edit plugin"
                     disabled={busy}
-                    onClick={() => setEditing((cur) => !cur)}
-                  />
+                    onClick={openEditor}
+                  >
+                    <elements.SvgIcon name="edit" size={16} inline />
+                  </elements.Button>
                 </elements.Tooltip>
-                {confirmingDelete ? (
-                  <>
-                    <elements.Button
-                      size="small"
-                      type="danger"
-                      onClick={handleDelete}
-                    >
-                      Confirm
-                    </elements.Button>
-                    <elements.Button
-                      size="small"
-                      onClick={() => setConfirmingDelete(false)}
-                    >
-                      Cancel
-                    </elements.Button>
-                  </>
-                ) : (
-                  <elements.Tooltip tip="Delete plugin">
-                    <elements.Button
-                      size="medium"
-                      icon="trash"
-                      type="danger"
-                      aria-label="Delete plugin"
-                      disabled={busy}
-                      onClick={() => setConfirmingDelete(true)}
-                    />
-                  </elements.Tooltip>
-                )}
+                <elements.Tooltip tip="Delete plugin">
+                  <elements.Button
+                    size="medium"
+                    className="c-button--icon"
+                    type="danger"
+                    aria-label="Delete plugin"
+                    disabled={busy}
+                    onClick={handleDelete}
+                  >
+                    <elements.SvgIcon name="trash" size={16} inline />
+                  </elements.Button>
+                </elements.Tooltip>
               </>
             )}
           </div>
         </div>
       </div>
-      {pluginManager.supportsUserPlugins && info.isUser && editing && (
-        <div style={{ marginTop: '8px' }}>
-          <ImportControls
-            pluginManager={pluginManager}
-            replacingId={info.id}
-            onDone={() => setEditing(false)}
-          />
-        </div>
-      )}
     </li>
   )
 }
