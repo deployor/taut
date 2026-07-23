@@ -126,7 +126,7 @@ jobs:
           CSC_KEYCHAIN:
             ${{ steps.signing.outputs.enabled == 'true' &&
             format('{0}/taut-signing.keychain-db', runner.temp) || '' }}
-        run: bun scripts/buildDesktop.ts mac win linux
+        run: bun scripts/buildDesktop.ts all
 
       - name: Publish desktop to latest release
         env:

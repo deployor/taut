@@ -85,8 +85,9 @@ of the app bundle inside of it, otherwise it is loaded from
 The project uses [Bun](https://bun.sh) for development (`npm i -g bun` if you
 need it). After installing and building everything (`bun run build`), output
 files will be in [`dist/`](dist/). Desktop (much slower than everything else) is
-built separately with `bun build:desktop [platforms]` (`win` `win-arm` `mac`
-`mac-x64` `linux` `linux-arm`, optional `--embedded`).
+built separately with `bun build:desktop [names...]`, where each name is a
+platform (`win` `win-arm` `mac` `mac-x64` `linux` `linux-arm`, or `all`) and/or
+a variant (`standard` `embedded`), e.g. `bun build:desktop mac win embedded`.
 
 PRs are very welcome! You should join the
 [#taut](https://hackclub.slack.com/archives/C0A057686SF) channel on the

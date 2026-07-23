@@ -131,44 +131,41 @@ const PLATFORMS: Record<PlatformKey, PlatformDef> = {
   },
 }
 
-const DEFAULT_PLATFORMS: PlatformKey[] = ['mac', 'win', 'linux']
+const PLATFORM_KEYS = Object.keys(PLATFORMS) as PlatformKey[]
+const VARIANT_KEYS: Variant[] = ['standard', 'embedded']
 
 // Selectors
 
 function getCombos(): Array<{ platform: PlatformKey; variant: Variant }> {
   const args = process.argv.slice(2)
-  const flags = args.filter((a) => a.startsWith('--'))
-  const positional = args.filter((a) => !a.startsWith('--'))
+  const platforms = new Set<PlatformKey>()
+  const variants = new Set<Variant>()
 
-  for (const f of flags) {
-    if (f !== '--embedded' && f !== '--both') {
+  for (const arg of args) {
+    if (arg === 'all') {
+      for (const p of PLATFORM_KEYS) platforms.add(p)
+    } else if ((PLATFORM_KEYS as string[]).includes(arg)) {
+      platforms.add(arg as PlatformKey)
+    } else if ((VARIANT_KEYS as string[]).includes(arg)) {
+      variants.add(arg as Variant)
+    } else {
       console.error(
-        `[build-desktop] Unknown flag "${f}". Valid: --embedded, --both`
+        `[build-desktop] Unknown name "${arg}". Valid platforms: ${PLATFORM_KEYS.join(', ')}, all. Valid variants: ${VARIANT_KEYS.join(', ')}`
       )
       process.exit(1)
     }
   }
 
-  const variants: Variant[] = flags.includes('--both')
-    ? ['standard', 'embedded']
-    : flags.includes('--embedded')
-      ? ['embedded']
-      : ['standard']
-
-  for (const p of positional) {
-    if (!(p in PLATFORMS)) {
-      console.error(
-        `[build-desktop] Unknown platform "${p}". Valid: ${Object.keys(PLATFORMS).join(', ')}`
-      )
-      process.exit(1)
-    }
+  if (platforms.size === 0) {
+    console.error(
+      `[build-desktop] Specify at least one platform to build. Valid: ${PLATFORM_KEYS.join(', ')}, all`
+    )
+    process.exit(1)
   }
-  const platforms = (
-    positional.length ? [...new Set(positional)] : DEFAULT_PLATFORMS
-  ) as PlatformKey[]
+  if (variants.size === 0) variants.add('standard')
 
-  return variants.flatMap((variant) =>
-    platforms.map((platform) => ({ variant, platform }))
+  return [...variants].flatMap((variant) =>
+    [...platforms].map((platform) => ({ variant, platform }))
   )
 }
 
