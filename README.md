@@ -5,12 +5,15 @@ Client mod for Slack :D
 ## Quickstart
 
 - Desktop:
-  - [Windows](https://taut.jer.app/taut-win.exe)
+  - Windows: [x64](https://taut.jer.app/taut-win.exe) /
+    [ARM](https://taut.jer.app/taut-win-arm.exe)
     - You may need to close Slack before installing
-  - [MacOS](https://taut.jer.app/taut-mac.dmg)
+  - MacOS: [Apple Silicon](https://taut.jer.app/taut-mac.dmg) /
+    [Intel](https://taut.jer.app/taut-mac-x64.dmg)
     - Run before launching:
       `xattr -d com.apple.quarantine /Applications/Taut.app`
-  - [Linux](https://taut.jer.app/taut-linux.AppImage)
+  - Linux: [x64](https://taut.jer.app/taut-linux.AppImage) /
+    [ARM](https://taut.jer.app/taut-linux-arm.AppImage)
   - Runs separately from your normal Slack desktop app!
   - Cannot run at the same time as normal Slack
 - Userscript:
