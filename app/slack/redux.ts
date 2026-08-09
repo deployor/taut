@@ -95,12 +95,25 @@ export function getReduxStore(): SlackStore | null {
   return null
 }
 
+const patchListeners = new Set<() => void>()
+
+const subscribePatches = (notify: () => void) => {
+  patchListeners.add(notify)
+  return () => void patchListeners.delete(notify)
+}
+const getPatchVersion = () => statePatchVersion
+
 /** Invalidate patched reads and nudge connected views to re-read */
 export function refreshState(): void {
   statePatchVersion++
   try {
     getReduxStore()?.dispatch({ type: '@@taut/PATCH_STATE' })
   } catch {}
+  for (const notify of patchListeners) {
+    try {
+      notify()
+    } catch {}
+  }
 }
 
 /** Register a read-time state transform */
@@ -116,11 +129,14 @@ export function patchState(patch: StatePatch): () => void {
 const hasOwn = (obj: object, key: PropertyKey): boolean =>
   typeof key !== 'symbol' && Object.hasOwn(obj, key)
 
-export function patchSlice<T = any>(
-  sliceName: string,
-  mapEntry: (key: string, entry: T | undefined) => T | undefined,
+export type MapEntry<T> = (key: string, entry: T | undefined) => T | undefined
+
+/** A view of an id-keyed store object, reading entries through `mapEntry` */
+export function mapEntries<T = any>(
+  object: object,
+  mapEntry: MapEntry<T>,
   addedKeys?: () => Iterable<string>
-): () => void {
+): object {
   // A refresh (version bump) means the closure's inputs may have changed, so
   // memoized results and the added-key set are dropped and recomputed.
   let cache = new Map<string, { input: any; output: any }>()
@@ -187,27 +203,32 @@ export function patchSlice<T = any>(
     }
     return proxied
   }
+  return new Proxy(object, {
+    get: (target, key) => run(key, (target as any)[key]),
+    getOwnPropertyDescriptor: (target, key) => {
+      const desc = Object.getOwnPropertyDescriptor(target, key)
+      if (!desc || !('value' in desc) || desc.configurable === false)
+        return desc
+      return { ...desc, value: run(key, desc.value) }
+    },
+    getPrototypeOf: (target) => {
+      const proto = Object.getPrototypeOf(target)
+      if (!proto || typeof proto !== 'object' || proto === Object.prototype)
+        return proto
+      return proxyProto(proto)
+    },
+  })
+}
+
+export function patchSlice<T = any>(
+  sliceName: string,
+  mapEntry: MapEntry<T>,
+  addedKeys?: () => Iterable<string>
+): () => void {
   return patchState((state) => {
     const slice = state?.[sliceName]
     if (!slice || typeof slice !== 'object') return state
-    return {
-      ...state,
-      [sliceName]: new Proxy(slice, {
-        get: (target, key) => run(key, (target as any)[key]),
-        getOwnPropertyDescriptor: (target, key) => {
-          const desc = Object.getOwnPropertyDescriptor(target, key)
-          if (!desc || !('value' in desc) || desc.configurable === false)
-            return desc
-          return { ...desc, value: run(key, desc.value) }
-        },
-        getPrototypeOf: (target) => {
-          const proto = Object.getPrototypeOf(target)
-          if (!proto || typeof proto !== 'object' || proto === Object.prototype)
-            return proto
-          return proxyProto(proto)
-        },
-      }),
-    }
+    return { ...state, [sliceName]: mapEntries(slice, mapEntry, addedKeys) }
   })
 }
 
@@ -301,11 +322,19 @@ export const reduxPromise = (async () => {
     return React.useSyncExternalStore(subscribe, getSnapshot)
   }
 
+  // Slack's connect memoizes off the raw state, so it never re-runs for a
+  // read-time patch. A component reading patched state needs this to re-render.
+  function usePatchVersion(): number {
+    return React.useSyncExternalStore(subscribePatches, getPatchVersion)
+  }
+
   return {
     getStore: getReduxStore,
     useReduxState,
+    usePatchVersion,
     patchState,
     patchSlice,
+    mapEntries,
     patchThunk,
     refresh: refreshState,
   }

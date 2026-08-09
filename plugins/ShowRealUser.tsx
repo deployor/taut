@@ -1,0 +1,241 @@
+// Shows the user who sent a message via a bot like at-channel
+
+import { TautPlugin } from '$taut'
+
+type SlackMessage = {
+  channel?: string
+  ts?: string
+  user?: string
+  attachments?: Attachment[]
+  bot_id?: string
+  app_id?: string
+  username?: string
+  icons?: unknown
+  bot_profile?: unknown
+  subtype?: string
+  display_as_bot?: boolean
+  metadata?: { event_type?: string; event_payload?: Record<string, unknown> }
+}
+
+const USER_ID_RE = /^[UW][A-Z0-9]+$/
+/** a forward carries no bot id of its own, so this link is the only clue */
+const SERVICE_RE = /\/services\/(B[A-Z0-9]+)/
+
+type SearchResult = { messages?: SlackMessage[] }
+type Attachment = {
+  author_id?: string
+  author_name?: string
+  author_subname?: string
+  author_icon?: string
+  author_link?: string
+  channel_id?: string
+  ts?: string
+}
+
+/**
+ * bots that post on someone's behalf, and where each records who that was
+ * must be a trusted bot!
+ */
+const RELAY_BOTS: Record<string, (msg: SlackMessage) => unknown> = {
+  // at-channel
+  B08G06U6SJG: (msg) => msg.metadata?.event_payload?.source_user_id,
+  // bChannel
+  B0BJDMND6HX: (msg) => msg.metadata?.event_payload?.source_user_id,
+  // Ping Bot
+  B0BEYA2UKPZ: (msg) => msg.metadata?.event_payload?.source_user_id,
+}
+
+export default class ShowRealUser extends TautPlugin {
+  static readonly id = 'ShowRealUser'
+  static readonly pluginName = 'Show Real User'
+  static readonly description =
+    'Shows the user who sent a message via a bot like at-channel'
+  static readonly authors = '<@U06UYA5GMB5>'
+  static readonly defaultConfig = `
+    // Shows the user who sent a message via a bot like at-channel
+    "ShowRealUser": {
+      "enabled": true
+    }
+  `
+
+  /** key: "channel:ts" -> sender, or null once we know the bot named none */
+  private senders = new this.api.Cache<string | null>('relay_senders', {
+    ttl: 30 * 24 * 60 * 60 * 1000,
+    maxSize: 5000,
+  })
+  /** failed lookups, otherwise every store update retries them */
+  private failed = new Set<string>()
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+  private relay(msg: SlackMessage | undefined) {
+    return msg?.bot_id ? RELAY_BOTS[msg.bot_id] : undefined
+  }
+
+  private validId(value: unknown): string | undefined {
+    return typeof value === 'string' && USER_ID_RE.test(value)
+      ? value
+      : undefined
+  }
+
+  /** the same message, minus every trace of the bot that carried it */
+  private asSentBy(msg: SlackMessage, user: string): SlackMessage {
+    const real = { ...msg, user }
+    // Slack tests some of these with `in` so we should delete them
+    for (const key of [
+      'bot_id',
+      'app_id',
+      'username',
+      'icons',
+      'bot_profile',
+      'display_as_bot',
+    ] as const)
+      delete real[key]
+    if (real.subtype === 'bot_message') delete real.subtype
+    return real
+  }
+
+  // slack omits include_all_metadata, so the store keeps event_type and drops
+  // the payload, leaving us to fetch it ourselves
+  private async lookUp(key: string) {
+    const [channel, ts] = key.split(':')
+    try {
+      await this.senders.fetch(key, async () => {
+        const res = await this.api.userAPI('conversations.history', {
+          channel,
+          oldest: ts,
+          latest: ts,
+          inclusive: 'true',
+          limit: '1',
+          include_all_metadata: 'true',
+        })
+        const found = res.messages?.[0] as SlackMessage | undefined
+        const relay = this.relay(found)
+        return (relay && this.validId(relay(found as SlackMessage))) ?? null
+      })
+    } catch (err) {
+      this.failed.add(key)
+      this.log('could not look up sender for', key, err)
+      return
+    }
+    // a screenful resolves together, so repaint once they've settled
+    if (this.refreshTimer) clearTimeout(this.refreshTimer)
+    this.refreshTimer = setTimeout(() => {
+      if (!this.api.signal.aborted) this.api.redux.refresh()
+    }, 100)
+  }
+
+  /** a forwarded copy of a relayed message, re-credited to the real person */
+  private asForwardedBy(att: Attachment): Attachment {
+    if (!att?.channel_id || !att.ts) return att
+    const botId = SERVICE_RE.exec(att.author_link ?? '')?.[1]
+    if (!botId || !RELAY_BOTS[botId]) return att
+    const user = this.senderOf(att.channel_id, att.ts)
+    if (!user) return att
+    const profile = this.api.members.getCachedMember(user)?.profile
+    const forwarded = {
+      ...att,
+      author_id: user,
+      author_name:
+        profile?.display_name || profile?.real_name || att.author_name,
+      author_icon: profile?.image_48 ?? att.author_icon,
+      author_link: this.profileLink(att.author_link, user),
+    }
+    delete forwarded.author_subname
+    return forwarded
+  }
+
+  /** the bot's own link, repointed at a person, keeping the workspace domain */
+  private profileLink(link: string | undefined, user: string) {
+    try {
+      return `${new URL(link ?? '').origin}/team/${user}`
+    } catch {
+      return link
+    }
+  }
+
+  /** the message as sent by the real person, once we know who that is */
+  private fixed(
+    msg: SlackMessage | undefined,
+    channel = msg?.channel,
+    ts = msg?.ts
+  ): SlackMessage | undefined {
+    if (!msg) return msg
+    let out = msg
+    const relay = this.relay(msg)
+    if (relay) {
+      const user =
+        this.validId(relay(msg)) ??
+        (channel && ts ? this.senderOf(channel, ts) : undefined)
+      if (user) out = this.asSentBy(msg, user)
+    }
+    // a message can forward a relayed one without being relayed itself
+    const attachments = out.attachments
+    if (Array.isArray(attachments)) {
+      const next = attachments.map((att) => this.asForwardedBy(att))
+      if (next.some((att, i) => att !== attachments[i]))
+        out = { ...out, attachments: next }
+    }
+    return out
+  }
+
+  /** the sender we know for a relayed message, looking it up if we don't */
+  private senderOf(channel: string, ts: string): string | undefined {
+    const key = `${channel}:${ts}`
+    const known = this.senders.get(key)
+    if (known !== undefined) return known ?? undefined
+    // the cache dedups an in-flight lookup, so a repeat read costs nothing
+    if (!this.failed.has(key)) void this.lookUp(key)
+    return undefined
+  }
+
+  async start() {
+    await this.senders.load()
+    if (this.api.signal.aborted) return
+
+    // messages nest a channel deep, so each channel's bucket gets mapped too
+    this.api.redux.patchSlice<object>('messages', (channelId, bucket) => {
+      if (!bucket || typeof bucket !== 'object') return bucket
+      return this.api.redux.mapEntries<SlackMessage>(bucket, (ts, msg) =>
+        this.fixed(msg, channelId, ts)
+      )
+    })
+    this.api.redux.refresh()
+
+    for (const name of [
+      'MessageWrapper',
+      'ThreadRootGeneric',
+      'ActivityItem',
+    ]) {
+      this.api.patchComponent<{ msg?: SlackMessage }>(
+        name,
+        (Original) => (props) => {
+          const version = this.api.redux.usePatchVersion()
+          const msg = React.useMemo(
+            () => this.fixed(props.msg),
+            [props.msg, version]
+          )
+          return <Original {...props} msg={msg} />
+        }
+      )
+    }
+
+    // search keeps its own copies, which carry the bot's user id as the sender
+    this.api.patchComponent<{ result?: SearchResult }>(
+      'MessageListItem',
+      (Original) => (props) => {
+        const version = this.api.redux.usePatchVersion()
+        const result = React.useMemo(() => {
+          const found = props.result?.messages
+          if (!found?.length) return props.result
+          const fixed = found.map((msg) => this.fixed(msg) ?? msg)
+          return fixed.some((msg, i) => msg !== found[i])
+            ? { ...props.result, messages: fixed }
+            : props.result
+        }, [props.result, version])
+        return <Original {...props} result={result} />
+      }
+    )
+
+    this.log('Started')
+  }
+}
