@@ -1,6 +1,41 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import os from 'node:os'
 import { join } from 'node:path'
+
+const STORE_PACKAGE_PREFIX = 'com.tinyspeck.slackdesktop_'
+
+// msix slack lives in WindowsApps, which a non-elevated process can't list
+// but can read from at a known exact path!
+// so find the installed package's full name in the registry, then build the exact asar path
+function findStorePackageFullNames(prefix: string): string[] {
+  const key =
+    'HKCU\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppModel\\Repository\\Packages'
+  let output: string
+  try {
+    output = execFileSync('reg', ['query', key], {
+      encoding: 'utf8',
+      windowsHide: true,
+    })
+  } catch {
+    return []
+  }
+  const versionParts = (fullName: string) =>
+    (fullName.split('_')[1] ?? '').split('.').map((n) => Number(n) || 0)
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^HKEY_/i.test(line))
+    .map((line) => line.slice(line.lastIndexOf('\\') + 1))
+    .filter((name) => name.startsWith(prefix))
+    .sort((a, b) => {
+      const [va, vb] = [versionParts(a), versionParts(b)]
+      for (let i = 0; i < Math.max(va.length, vb.length); i++) {
+        if ((vb[i] ?? 0) !== (va[i] ?? 0)) return (vb[i] ?? 0) - (va[i] ?? 0)
+      }
+      return 0
+    })
+}
 
 export function findSlackAsar(): string {
   const candidates: string[] = []
@@ -27,20 +62,14 @@ export function findSlackAsar(): string {
           candidates.push(join(slackDir, v, 'resources', 'app.asar'))
         }
       }
-      // Microsoft Store install: %ProgramFiles%\WindowsApps\com.tinyspeck.slackdesktop_*
+      // msix install: %ProgramFiles%\WindowsApps\<full name>\app\resources\app.asar
       const programFiles = process.env.ProgramFiles ?? process.env.ProgramW6432
       if (programFiles) {
-        const windowsApps = join(programFiles, 'WindowsApps')
-        try {
-          for (const pkg of readdirSync(windowsApps)
-            .filter((d) => d.startsWith('com.tinyspeck.slackdesktop_'))
-            .sort()
-            .reverse()) {
-            candidates.push(
-              join(windowsApps, pkg, 'app', 'resources', 'app.asar')
-            )
-          }
-        } catch {}
+        for (const fullName of findStorePackageFullNames(STORE_PACKAGE_PREFIX)) {
+          candidates.push(
+            join(programFiles, 'WindowsApps', fullName, 'app', 'resources', 'app.asar')
+          )
+        }
       }
       break
     }

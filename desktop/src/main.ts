@@ -51,15 +51,13 @@ let slackAsarPath: string
 try {
   slackAsarPath = findSlackAsar()
 } catch {
-  app.whenReady().then(() => {
-    dialog.showMessageBoxSync({
-      type: 'error',
-      title: 'Taut',
-      message: 'Slack could not be found',
-      detail: 'Install the official Slack app, then open Taut again.',
-      buttons: ['Quit'],
-    })
-    app.exit(1)
+  await app.whenReady()
+  dialog.showMessageBoxSync({
+    type: 'error',
+    title: 'Taut',
+    message: 'Slack could not be found',
+    detail: 'Install the official Slack app, then open Taut again.',
+    buttons: ['Quit'],
   })
   process.exit(1)
 }

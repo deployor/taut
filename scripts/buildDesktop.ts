@@ -343,6 +343,16 @@ async function packageVariant(variant: Variant, platforms: PlatformKey[]) {
             : 'UNSIGNED (no cert found; notifications and stuff will not register)'
       console.log(`[build-desktop] macOS signing: ${how}`)
     }
+    // claude's explanation of this weird workaround:
+    // electron-builder picks a per-file 7z filter, and for arm64 that's the
+    // arm64 filter from 7-zip 21.03+, which the 2019-era nsis7z.dll it bundles
+    // can't extract, so the installer silently ships without Taut.exe
+    // forcing BCJ keeps the archive readable by that old extractor on every arch
+    if (def.os === 'win') {
+      process.env.ELECTRON_BUILDER_7Z_FILTER = 'BCJ'
+    } else {
+      delete process.env.ELECTRON_BUILDER_7Z_FILTER
+    }
     const artifacts = await electronBuild({
       projectDir: DESKTOP,
       targets: def.platform.createTarget(def.targets, ...def.archs),
