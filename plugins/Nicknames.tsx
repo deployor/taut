@@ -1,17 +1,10 @@
 // Locally rename other members from their profile "..." menu - only you see
 // it, everyone else still sees their real name
 
-import { TautPlugin } from '$taut'
+import { type MenuTemplateItem, TautPlugin } from '$taut'
 
 type NicknameMap = Record<string, string>
 
-type MenuTemplateItem = {
-  key?: string
-  label?: React.ReactNode
-  type?: 'separator' | string
-  click?: (e?: unknown) => void
-  [extra: string]: unknown
-}
 type MenuFromTemplateProps = { template?: MenuTemplateItem[] }
 type OverflowMenuProps = { memberId?: string }
 type MemberLike = {

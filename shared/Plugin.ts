@@ -5,6 +5,8 @@
 import type { TautAPI } from '../app/pluginManager'
 
 export type { StoredAccount } from '../app/api/accountSwitcher'
+export type { MenuTemplateItem } from '../app/api/elements'
+export type { MenuProps } from '../app/api/menu'
 export type { ModalHandle, OpenModalOptions } from '../app/api/modal'
 export type { TautAPI } from '../app/pluginManager'
 export type { ComponentType, componentReplacer } from '../app/slack/react'

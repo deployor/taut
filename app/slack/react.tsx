@@ -132,6 +132,22 @@ export const findComponentPromise = (async () => {
   return findComponent
 })()
 
+// slack never exports plenty of components, and connect keeps no
+// WrappedComponent link back, so note what resolveType sees instead
+const renderedComponents = new Map<string, ComponentType>()
+
+function rememberRendered(type: any) {
+  const name = getComponentName(type)
+  if (name && !renderedComponents.has(name)) renderedComponents.set(name, type)
+}
+
+/** console only, unlike findComponent, knows only what's been on screen */
+function findRenderedComponent(name: string): ComponentType | undefined {
+  return renderedComponents.get(name)
+}
+global.findRenderedComponent = findRenderedComponent
+global.renderedComponents = renderedComponents
+
 // Fiber Utilities (promise-wrapped)
 
 function getRootFiber(): object | null {
@@ -351,6 +367,8 @@ function resolveType(type: any, props: any): any {
   if (cacheable && resolvedComponentCache.has(type)) {
     return resolvedComponentCache.get(type)
   }
+  // past the caches, so this is the first time we've seen this component
+  if (cacheable) rememberRendered(type)
 
   const replacers = [...componentReplacements.entries()]
     .filter(([matcher]) => matcher(type))

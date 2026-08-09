@@ -279,7 +279,6 @@ export default class ShinigamiEyes extends TautPlugin {
       .join('\n')
 
     this.api.setStyle(
-      'shinigami-eyes',
       `
         ${emojiStyles}
       `

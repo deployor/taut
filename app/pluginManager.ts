@@ -10,8 +10,9 @@ import {
 import type { BlobStore, TautBridge } from '../shared/TautBridge'
 import { AccountSwitcher } from './api/accountSwitcher'
 import { bindCache } from './api/cache'
-import { removeStyle, setStyle } from './api/css'
+import { setStyle } from './api/css'
 import { elementsAPIPromise } from './api/elements'
+import { menuAPIPromise } from './api/menu'
 import { setupMessageSendDelta } from './api/messageSend'
 import { dialogHelpersFor, modalAPIPromise } from './api/modal'
 import { ScopedStorage } from './api/pluginStorage'
@@ -66,7 +67,6 @@ async function makeBaseTautAPI(bridge: TautBridge) {
 
   const TautAPI = {
     setStyle,
-    removeStyle,
     findExport: await findExportPromise,
     findByProps: await findByPropsPromise,
     findComponent: await findComponentPromise,
@@ -79,6 +79,7 @@ async function makeBaseTautAPI(bridge: TautBridge) {
     cookies: bridge.cookies ?? null,
     accounts: new AccountSwitcher(bridge),
     modal: await modalAPIPromise,
+    menu: await menuAPIPromise,
     elements: await elementsAPIPromise,
     commonModules: {
       react: await reactPromise,
@@ -172,8 +173,6 @@ function createScopedAPI(
   storageBlob: BlobStore,
   cacheBlob: BlobStore
 ) {
-  const scopedStyleKey = (key: string) => `${id.length}-${id}-${key}`
-  const trackedStyleKeys = new Set<string>()
   // Wrap a registration fn so the disposer it returns is auto-run on teardown.
   const tracked = <F extends (...args: any[]) => () => void>(fn: F): F =>
     ((...args: Parameters<F>) => scope.track(fn(...args))) as F
@@ -195,18 +194,9 @@ function createScopedAPI(
       patchThunk: tracked(base.redux.patchThunk),
     },
     onMessageSendDelta: tracked(base.onMessageSendDelta),
-    setStyle: (key: string, css: string) => {
-      if (scope.signal.aborted) return
-      const scopedKey = scopedStyleKey(key)
-      base.setStyle(scopedKey, css)
-      if (!trackedStyleKeys.has(scopedKey)) {
-        trackedStyleKeys.add(scopedKey)
-        scope.track(() => base.removeStyle(scopedKey))
-      }
-    },
-    removeStyle: (key: string) => {
-      if (!scope.signal.aborted) base.removeStyle(scopedStyleKey(key))
-    },
+    setStyle: tracked((css: string | null, key?: string) =>
+      base.setStyle(css, key === undefined ? undefined : `plugin:${id}:${key}`)
+    ),
     modal: {
       ...base.modal,
       openModal,

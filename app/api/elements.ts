@@ -66,6 +66,30 @@ export type LabelProps = {
   id?: string
 }
 
+/** One row of a Slack menu */
+export type MenuTemplateItem = {
+  key: string
+  label?: React.ReactNode
+  description?: React.ReactNode
+  type?: 'submenu' | 'separator' | 'header' | 'custom'
+  /** the rows of a `submenu` item */
+  template?: MenuTemplateItem[]
+  /** an `SvgIcon` name */
+  icon?: string
+  click?: (e?: unknown) => void
+  disabled?: boolean
+  danger?: boolean
+}
+
+export type MenuFromTemplateProps = { template?: MenuTemplateItem[] }
+
+export type MenuTriggerProps = {
+  position?: 'top' | 'bottom' | 'left' | 'right'
+  isDisabled?: boolean
+  renderMenu: (menuProps: object) => React.ReactNode
+  children?: React.ReactNode
+}
+
 export type FormTextInputProps = {
   id?: string
   name?: string
@@ -121,6 +145,8 @@ export const elementsAPIPromise = (async () => {
     ConfirmationModal: resolve<ConfirmationModalProps>('ConfirmationModal'),
     Label: resolve<LabelProps>('Label'),
     FormTextInput: resolve<FormTextInputProps>('FormTextInput'),
+    MenuTrigger: resolve<MenuTriggerProps>('MenuTrigger'),
+    MenuFromTemplate: resolve<MenuFromTemplateProps>('MenuFromTemplate'),
   }
 })()
 

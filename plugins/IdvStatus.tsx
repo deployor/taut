@@ -76,7 +76,6 @@ export default class IdvStatus extends TautPlugin {
     })
 
     this.api.setStyle(
-      'idv-status',
       `
         .taut-idv-not-eligible, .taut-idv-not-eligible .c-message__sender_button {
           text-decoration: underline wavy #e01e5a !important;

@@ -27,8 +27,8 @@ export async function bootstrap(bridge: NormalizedBridge): Promise<void> {
   console.log('[Taut] ConfigStore initialized', configStore)
   global.configStore = configStore
 
-  setStyle('user', configStore.getUserCssText())
-  configStore.onUserCssChange((css) => setStyle('user', css))
+  setStyle(configStore.getUserCssText(), 'user')
+  configStore.onUserCssChange((css) => setStyle(css, 'user'))
 
   // Initialize plugins
   const pluginManager = new PluginManager(bridge, configStore)

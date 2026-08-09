@@ -1,0 +1,146 @@
+// Adds a chip to each reaction bar that copies the people who reacted
+
+import { type MenuTemplateItem, TautPlugin } from '$taut'
+
+type SlackReaction = { name?: string; users?: string[] }
+type ReactionBarProps = { reactions?: SlackReaction[] }
+
+// stable identity, so context consumers don't rerender
+const NO_REACTIONS: SlackReaction[] = []
+const SEPARATORS: Record<string, string> = {
+  space: ' ',
+  newline: '\n',
+  comma: ', ',
+}
+
+export default class CopyReacted extends TautPlugin {
+  static readonly id = 'CopyReacted'
+  static readonly pluginName = 'Copy Reacted'
+  static readonly description =
+    'Copy the list of people who reacted to a message'
+  static readonly authors = '<@U06UYA5GMB5>'
+  static readonly defaultConfig = `
+    // Copy the list of people who reacted to a message
+    "CopyReacted": {
+      "enabled": false,
+      // "mentions" for <@U123>, or "names" for display names
+      "format": "mentions",
+      // "space", "newline", or "comma"
+      "separator": "space"
+    }
+  `
+
+  private readonly ReactionsContext =
+    React.createContext<SlackReaction[]>(NO_REACTIONS)
+
+  private async reactorName(userId: string): Promise<string> {
+    const member = await this.api.members.getMember(userId)
+    return (
+      member?.profile?.display_name ||
+      member?.profile?.real_name ||
+      member?.real_name ||
+      userId
+    )
+  }
+
+  private async copyReactors(userIds: string[]): Promise<void> {
+    const reactors = [...new Set(userIds)]
+    if (!reactors.length) return
+    const separator = SEPARATORS[String(this.config.separator)] ?? ' '
+    const lines =
+      this.config.format === 'names'
+        ? await Promise.all(reactors.map((id) => this.reactorName(id)))
+        : reactors.map((id) => `<@${id}>`)
+    try {
+      await navigator.clipboard.writeText(lines.join(separator))
+    } catch (err) {
+      this.log('could not copy reactors', err)
+      void this.api.modal.alert({
+        title: 'Could not copy',
+        body: 'Slack denied access to the clipboard.',
+      })
+    }
+  }
+
+  private readonly CopyButton = () => {
+    const reactions = React.useContext(this.ReactionsContext)
+    if (!reactions.length) return null
+
+    const { Menu } = this.api.menu
+    const { SvgIcon, MrkdwnElement } = this.api.elements
+
+    const everyone = [...new Set(reactions.flatMap((r) => r.users ?? []))]
+    const template: MenuTemplateItem[] = [
+      {
+        key: 'taut-cr-everyone',
+        label: `Everyone (${everyone.length})`,
+        click: () => void this.copyReactors(everyone),
+      },
+    ]
+    if (reactions.length > 1) {
+      for (const reaction of reactions) {
+        template.push({
+          key: `taut-cr-${reaction.name}`,
+          // mrkdwn renders the emoji as an image
+          label: (
+            <MrkdwnElement
+              text={`:${reaction.name}: (${reaction.users?.length ?? 0})`}
+            />
+          ),
+          click: () => void this.copyReactors(reaction.users ?? []),
+        })
+      }
+    }
+
+    return (
+      <Menu template={template} position="bottom">
+        <button
+          type="button"
+          className="c-button-unstyled c-reaction_add taut-cr"
+          data-qa="taut_copy_reacted"
+          aria-label="Copy who reacted"
+        >
+          <SvgIcon name="copy" size={18} />
+        </button>
+      </Menu>
+    )
+  }
+
+  start() {
+    this.api.setStyle(
+      `
+        /* mirrors how .c-reaction_add__fg greys the add-reaction icon */
+        .taut-cr {
+          color: var(--dt_color-content-pry);
+        }
+
+        .sk-client-theme--dark .taut-cr {
+          color: var(--dt_color-content-ter);
+        }
+
+        .sk-client-theme--dark .taut-cr:is(:hover, :focus) {
+          color: var(--dt_color-content-pry);
+        }
+      `
+    )
+
+    this.api.patchComponent<ReactionBarProps>(
+      'ReactionBar',
+      (Original) => (props) => (
+        <this.ReactionsContext.Provider value={props.reactions ?? NO_REACTIONS}>
+          <Original {...props} />
+        </this.ReactionsContext.Provider>
+      )
+    )
+
+    // last child inside the bar, so the chip stays in the row
+    this.api.patchComponent('ReactionAddButton', (Original) => (props) => (
+      <>
+        <Original {...props} />
+        <this.CopyButton />
+      </>
+    ))
+
+    this.log('Started')
+  }
+}

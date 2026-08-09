@@ -1,16 +1,12 @@
 // Adds a "Switch account" submenu to the profile menu (above "Sign out") for
 // jumping between saved same-workspace accounts without re-logging in
 
-import { type ComponentType, type StoredAccount, TautPlugin } from '$taut'
-
-type MenuTemplateItem = {
-  key: string
-  label?: React.ReactNode
-  type?: 'submenu' | 'separator' | 'header' | 'custom'
-  template?: MenuTemplateItem[]
-  click?: (e?: unknown) => void
-  disabled?: boolean
-}
+import {
+  type ComponentType,
+  type MenuTemplateItem,
+  type StoredAccount,
+  TautPlugin,
+} from '$taut'
 
 type MenuFromTemplateProps = { template?: MenuTemplateItem[] }
 type AccountRowProps = {

@@ -29,7 +29,7 @@ export async function addSettingsTab(
   await reactPromise
 
   void initMonaco()
-  setStyle('settings-ui', SETTINGS_UI_CSS)
+  setStyle(SETTINGS_UI_CSS, 'settings-ui')
 
   const [resolvedElements, resolvedModal] = await Promise.all([
     elementsAPIPromise,

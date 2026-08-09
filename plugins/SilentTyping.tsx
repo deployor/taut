@@ -107,7 +107,6 @@ export default class SilentTyping extends TautPlugin {
     })
 
     this.api.setStyle(
-      'silent-typing',
       `.taut-silent-typing-wrapper .c-texty_buttons { flex: 1; min-width: 0; }`
     )
 

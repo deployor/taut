@@ -101,24 +101,37 @@ async function storeMember(member: SlackMember): Promise<void> {
   } catch {}
 }
 
+const inFlight = new Map<string, Promise<SlackMember | undefined>>()
+
 /** Get a member, fetching it if redux doesn't have it yet */
 export async function getMember(
   userId: string
 ): Promise<SlackMember | undefined> {
   const cached = getCachedMember(userId)
   if (isLoaded(cached)) return cached
-  try {
-    const { user } = await userAPI('users.info', { user: userId })
-    const member = user as SlackMember
-    await storeMember(member)
-    return member
-  } catch {
-    return cached
-  }
+
+  // one request per member, however many callers ask at once
+  const pending = inFlight.get(userId)
+  if (pending) return pending
+
+  const request = (async () => {
+    try {
+      const { user } = await userAPI('users.info', { user: userId })
+      const member = user as SlackMember
+      await storeMember(member)
+      return member
+    } catch {
+      return cached
+    } finally {
+      inFlight.delete(userId)
+    }
+  })()
+  inFlight.set(userId, request)
+  return request
 }
 
 export const membersPromise = (async () => {
-  await reactPromise
+  const React = await reactPromise
   const { useReduxState } = await reduxPromise
   const findExport = await findExportPromise
   // Resolved up front so useMember's hook set is stable across renders
@@ -133,11 +146,11 @@ export const membersPromise = (async () => {
     const member = useReduxState<SlackMember | undefined>(
       (s) => s.members?.[userId]
     )
-    useHydrateMember({
-      reason: 'taut',
-      memberId: userId,
-      skip: isLoaded(member),
-    })
+    const loaded = isLoaded(member)
+    useHydrateMember({ reason: 'taut', memberId: userId, skip: loaded })
+    React.useEffect(() => {
+      if (userId && !loaded) void getMember(userId)
+    }, [userId, loaded])
     return member
   }
 
