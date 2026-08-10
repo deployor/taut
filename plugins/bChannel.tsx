@@ -841,6 +841,12 @@ export default class bChannel extends TautPlugin {
     return false
   }
 
+  private isBChannelMessage(channelId: string, ts: string): boolean {
+    const store = this.currentSlackStore()
+    const msg = store?.getState().messages?.[channelId]?.[ts]
+    return msg?.metadata?.event_type === 'bchannel_message'
+  }
+
   private async slackPrivateFileMetadata(
     fileId: string,
     root: Element | Document
@@ -1740,7 +1746,11 @@ export default class bChannel extends TautPlugin {
               ? candidateFromDelete(body)
               : null
         : null
-      if (candidate && DELETE_MESSAGE_RE.test(url)) {
+      if (
+        candidate &&
+        DELETE_MESSAGE_RE.test(url) &&
+        this.isBChannelMessage(candidate.channelId, candidate.ts)
+      ) {
         return this.handoffDelete(candidate).then(({ ok, fallThrough }) =>
           fallThrough
             ? this.nativeFetch(input, init)
@@ -1806,6 +1816,7 @@ export default class bChannel extends TautPlugin {
     const originalSend = this.originalXHRSend
     const maybeHandoff = this.maybeHandoff.bind(this)
     const handoffDelete = this.handoffDelete.bind(this)
+    const isBChannelMessage = this.isBChannelMessage.bind(this)
     XMLHttpRequest.prototype.send = function (
       this: XMLHttpRequest,
       body?: Document | XMLHttpRequestBodyInit | null
@@ -1813,7 +1824,7 @@ export default class bChannel extends TautPlugin {
       const url = (this as any).__tautBChannelUrl || ''
       if (DELETE_MESSAGE_RE.test(url)) {
         const candidate = candidateFromDelete(body)
-        if (candidate) {
+        if (candidate && isBChannelMessage(candidate.channelId, candidate.ts)) {
           void handoffDelete(candidate).then(({ ok, fallThrough }) => {
             if (fallThrough) {
               originalSend.call(this, body)
