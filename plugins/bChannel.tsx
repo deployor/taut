@@ -1056,6 +1056,36 @@ export default class bChannel extends TautPlugin {
     return uploads
   }
 
+  private clearPendingFileUploads(store: any, pendingIds: Set<string>) {
+    if (!pendingIds.size || !store?.dispatch) return
+    let runtimeRequire: any
+    try {
+      runtimeRequire = this.getSlackRequire()
+    } catch {
+      return
+    }
+    // find the module that owns pendingFileUploads and hand it each pending id,
+    // same trick as the serializer lookup
+    for (const [id, factory] of Object.entries(runtimeRequire.m || {})) {
+      const source = String(factory)
+      if (!source.includes('pendingFileUploads')) continue
+      const exports = runtimeRequire(id)
+      const candidate = Object.values(exports || {}).find(
+        (value: any) =>
+          typeof value === 'function' &&
+          /removePending|clearPending|deletePending/i.test(String(value))
+      )
+      if (!candidate) continue
+      const remove = candidate as (id: string) => unknown
+      for (const pendingId of pendingIds) {
+        try {
+          store.dispatch(remove(pendingId))
+        } catch {}
+      }
+      return
+    }
+  }
+
   private async uploadStagedFiles(token: string, uploads: any[]) {
     for (const upload of uploads) {
       let blob: Blob
@@ -1220,6 +1250,14 @@ export default class bChannel extends TautPlugin {
           includeBroadcastKeywordWarning: false,
         })
         await this.uploadStagedFiles(staged.token, uploads)
+        this.clearPendingFileUploads(
+          meta.store,
+          new Set(
+            Array.isArray(args?.pendingFileIds)
+              ? args.pendingFileIds.map(String)
+              : []
+          )
+        )
         return result
       } catch (error) {
         await this.discardIntent(staged.token)
