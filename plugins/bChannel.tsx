@@ -2,6 +2,7 @@ import { TautPlugin } from '$taut'
 
 const POST_MESSAGE_RE = /\/api\/chat\.postMessage(?:[/?#]|$)/
 const COMPLETE_UPLOAD_RE = /\/api\/files\.completeUploadExternal(?:[/?#]|$)/
+const DELETE_MESSAGE_RE = /\/api\/chat\.delete(?:[/?#]|$)/
 const IMAGE_TYPES = new Set([
   'image/jpeg',
   'image/png',
@@ -320,6 +321,22 @@ function candidateFromFileCompletion(body: any): any {
       blocks: normalized.blocks,
       ...(threadTs ? { threadTs } : {}),
     },
+  }
+}
+
+function candidateFromDelete(body: any): any {
+  const values = bodyRecord(body)
+  if (!values) return null
+  const channelId = String(values.channel || '')
+  const ts = String(values.ts || '')
+  if (!/^[CG][A-Z0-9]+$/.test(channelId) || !/^\d{1,16}\.\d{1,16}$/.test(ts))
+    return null
+  return {
+    token: String(values.token || ''),
+    channelId,
+    ts,
+    dedupe: `${channelId}:${ts}`,
+    ...teamIdFrom(values),
   }
 }
 
@@ -1602,6 +1619,62 @@ export default class bChannel extends TautPlugin {
     )
   }
 
+  private async handoffDelete(
+    candidate: any
+  ): Promise<{ ok: boolean; fallThrough: boolean }> {
+    if (!candidate.token) return { ok: false, fallThrough: true }
+    let staged: any
+    try {
+      staged = await this.stageIntent({
+        version: 1,
+        action: 'delete',
+        channelId: candidate.channelId,
+        ts: candidate.ts,
+        ...(candidate.teamId ? { teamId: candidate.teamId } : {}),
+      })
+    } catch {
+      return { ok: false, fallThrough: true }
+    }
+    const commandBody = new URLSearchParams({
+      token: candidate.token,
+      channel: candidate.channelId,
+      command: '/bchannel',
+      text: staged.commandText,
+    })
+    let commandResponse: Response
+    try {
+      commandResponse = await this.nativeFetch('/api/chat.command', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        },
+        body: commandBody,
+        signal: this.fetchSignal(15000),
+      })
+    } catch {
+      return { ok: false, fallThrough: false }
+    }
+    const result = await commandResponse.json().catch(() => ({}))
+    if (!commandResponse.ok || result.ok === false) {
+      const code = String(result.error || `http_${commandResponse.status}`)
+      if (code === 'unknown_command' || code === 'command_not_found') {
+        this.showError(
+          "The /bchannel command isn't installed in this workspace. Ask an admin to install bChannel."
+        )
+        return { ok: false, fallThrough: false }
+      }
+      this.showError(
+        String(
+          result.message ||
+            "bChannel couldn't delete this message. Try deleting it as the bot directly."
+        )
+      )
+      return { ok: false, fallThrough: false }
+    }
+    return { ok: true, fallThrough: false }
+  }
+
   private maybeHandoff(candidate: any, result: any) {
     if (
       !candidate ||
@@ -1625,8 +1698,28 @@ export default class bChannel extends TautPlugin {
           ? candidateFromBody(body)
           : COMPLETE_UPLOAD_RE.test(url)
             ? candidateFromFileCompletion(body)
-            : null
+            : DELETE_MESSAGE_RE.test(url)
+              ? candidateFromDelete(body)
+              : null
         : null
+      if (candidate && DELETE_MESSAGE_RE.test(url)) {
+        return this.handoffDelete(candidate).then(({ ok, fallThrough }) =>
+          fallThrough
+            ? this.nativeFetch(input, init)
+            : new Response(
+                JSON.stringify(
+                  ok
+                    ? {
+                        ok: true,
+                        channel: candidate.channelId,
+                        ts: candidate.ts,
+                      }
+                    : { ok: false, error: 'cannot_delete_message' }
+                ),
+                { status: 200, headers: { 'content-type': 'application/json' } }
+              )
+        )
+      }
       if (
         candidate &&
         (candidate.requiresHandoff ||
@@ -1661,7 +1754,8 @@ export default class bChannel extends TautPlugin {
       ;(this as any).__tautBChannelPost =
         String(method || 'GET').toUpperCase() === 'POST' &&
         (POST_MESSAGE_RE.test((this as any).__tautBChannelUrl) ||
-          COMPLETE_UPLOAD_RE.test((this as any).__tautBChannelUrl))
+          COMPLETE_UPLOAD_RE.test((this as any).__tautBChannelUrl) ||
+          DELETE_MESSAGE_RE.test((this as any).__tautBChannelUrl))
       return originalOpen.call(
         this,
         method,
@@ -1673,14 +1767,47 @@ export default class bChannel extends TautPlugin {
     this.originalXHRSend = XMLHttpRequest.prototype.send
     const originalSend = this.originalXHRSend
     const maybeHandoff = this.maybeHandoff.bind(this)
+    const handoffDelete = this.handoffDelete.bind(this)
     XMLHttpRequest.prototype.send = function (
       this: XMLHttpRequest,
       body?: Document | XMLHttpRequestBodyInit | null
     ) {
-      if ((this as any).__tautBChannelPost) {
-        const candidate = COMPLETE_UPLOAD_RE.test(
-          (this as any).__tautBChannelUrl || ''
-        )
+      const url = (this as any).__tautBChannelUrl || ''
+      if (DELETE_MESSAGE_RE.test(url)) {
+        const candidate = candidateFromDelete(body)
+        if (candidate) {
+          void handoffDelete(candidate).then(({ ok, fallThrough }) => {
+            if (fallThrough) {
+              originalSend.call(this, body)
+              return
+            }
+            const payload = JSON.stringify(
+              ok
+                ? { ok: true, channel: candidate.channelId, ts: candidate.ts }
+                : { ok: false, error: 'cannot_delete_message' }
+            )
+            for (const [key, value] of Object.entries({
+              readyState: 4,
+              status: 200,
+              statusText: 'OK',
+              responseText: payload,
+              response: payload,
+            })) {
+              Object.defineProperty(this, key, {
+                configurable: true,
+                writable: true,
+                value,
+              })
+            }
+            for (const type of ['readystatechange', 'load', 'loadend']) {
+              this.dispatchEvent(new Event(type))
+            }
+          })
+          return
+        }
+      }
+      if ((this as any).__tautBChannelPost && !DELETE_MESSAGE_RE.test(url)) {
+        const candidate = COMPLETE_UPLOAD_RE.test(url)
           ? candidateFromFileCompletion(body)
           : candidateFromBody(body)
         if (candidate) {
