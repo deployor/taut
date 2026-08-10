@@ -1,8 +1,7 @@
 import { TautPlugin } from '$taut'
 
-const POST_MESSAGE_RE = /\/api\/chat\.postMessage(?:[/?#]|$)/
-const COMPLETE_UPLOAD_RE = /\/api\/files\.completeUploadExternal(?:[/?#]|$)/
-const DELETE_MESSAGE_RE = /\/api\/chat\.delete(?:[/?#]|$)/
+const BROADCAST_MARKER_RE =
+  /<!(?:channel|here)(?:\|[^>]*)?>|@(?:channel|here)\b/i
 const IMAGE_TYPES = new Set([
   'image/jpeg',
   'image/png',
@@ -238,6 +237,14 @@ function isChannelConversation(channelId: string): boolean {
 function candidateFromBody(body: any): any {
   const values = bodyRecord(body)
   if (!values) return null
+  const rawText = typeof values.text === 'string' ? values.text : ''
+  const rawBlocks = typeof values.blocks === 'string' ? values.blocks : ''
+  if (!rawText && !rawBlocks) return null
+  if (
+    !BROADCAST_MARKER_RE.test(rawText) &&
+    !BROADCAST_MARKER_RE.test(rawBlocks)
+  )
+    return null
   const channelId = String(values.channel || '')
   const token = String(values.token || '')
   const blocks = jsonArray(values.blocks)
@@ -282,6 +289,14 @@ function candidateFromBody(body: any): any {
 function candidateFromFileCompletion(body: any): any {
   const values = bodyRecord(body)
   if (!values) return null
+  const rawText = String(values.initial_comment || values.text || '')
+  const rawBlocks = typeof values.blocks === 'string' ? values.blocks : ''
+  if (!rawText && !rawBlocks) return null
+  if (
+    !BROADCAST_MARKER_RE.test(rawText) &&
+    !BROADCAST_MARKER_RE.test(rawBlocks)
+  )
+    return null
   const channelId = String(values.channel_id || values.channel || '')
   const token = String(values.token || '')
   const blocks = jsonArray(values.blocks)
@@ -667,6 +682,8 @@ export default class bChannel extends TautPlugin {
   private originalXHRSend: typeof XMLHttpRequest.prototype.send | null = null
   private observer: MutationObserver | null = null
   private composerFrame = 0
+  private evictionTimer: number | null = null
+  private upgradeFromEvent: ((event: Event) => void) | null = null
 
   private serviceUrl(): string {
     const configured = String(
@@ -844,7 +861,8 @@ export default class bChannel extends TautPlugin {
   private isBChannelMessage(channelId: string, ts: string): boolean {
     const store = this.currentSlackStore()
     const msg = store?.getState().messages?.[channelId]?.[ts]
-    return msg?.metadata?.event_type === 'bchannel_message'
+    if (msg?.metadata?.event_type === 'bchannel_message') return true
+    return msg?.bot_id === 'B0BJDMND6HX'
   }
 
   private async slackPrivateFileMetadata(
@@ -1070,8 +1088,7 @@ export default class bChannel extends TautPlugin {
     } catch {
       return
     }
-    // find the module that owns pendingFileUploads and hand it each pending id,
-    // same trick as the serializer lookup
+    // dig out the module that owns pendingFileUploads, same as the serializer
     for (const [id, factory] of Object.entries(runtimeRequire.m || {})) {
       const source = String(factory)
       if (!source.includes('pendingFileUploads')) continue
@@ -1284,14 +1301,14 @@ export default class bChannel extends TautPlugin {
       composer.closest?.('.ql-container') || composer.parentElement
     const quill = (container as any)?.__quill
     if (!quill || typeof quill.getModule !== 'function') return
-    const fiber = reactFiber(container || composer)
-    if (!fiber) return
-    const autocomplete = componentFromFiber(fiber, 'TextyAutocomplete')
-    const pane = componentFromFiber(fiber, 'MessagePaneInput')
-    if (!autocomplete?.props) return
 
     let meta = this.composerState.get(composer)
     if (!meta) {
+      const fiber = reactFiber(container || composer)
+      if (!fiber) return
+      const autocomplete = componentFromFiber(fiber, 'TextyAutocomplete')
+      const pane = componentFromFiber(fiber, 'MessagePaneInput')
+      if (!autocomplete?.props) return
       const originallyEnabled =
         autocomplete.props.includeAllBroadcastKeywords === true
       meta = {
@@ -1299,29 +1316,55 @@ export default class bChannel extends TautPlugin {
         eligible: false,
         store: this.currentSlackStore(),
         composer,
+        autocomplete,
+        pane,
+        dirty: true,
       }
       this.composerState.set(composer, meta)
+      try {
+        quill.on?.('text-change', () => {
+          meta.dirty = true
+        })
+      } catch {
+        // noop
+      }
     } else if (!meta.store) {
       meta.store = this.currentSlackStore()
     }
     meta.composer = composer
+    meta.quill = quill
 
+    const pane = meta.pane
+    const autocomplete = meta.autocomplete
     const channelId = String(pane?.props?.channelId || '')
     const teamId = String(pane?.props?.teamId || '')
-    meta.eligible = isChannelConversation(channelId)
+    const eligible = isChannelConversation(channelId)
+    const channelChanged = meta.channelId !== channelId
+    meta.channelId = channelId
     meta.teamId = teamId
 
-    if (meta.managed && meta.eligible)
-      this.managedChannels.set(channelId, Date.now())
-
-    if (meta.managed) {
-      const autoslug = quill.getModule('autoslug')
-      if (autoslug?.options)
-        autoslug.options.includeAllBroadcastKeywords = meta.eligible
-      autocomplete.props.includeAllBroadcastKeywords = meta.eligible
+    if (eligible !== meta.eligible || channelChanged) {
+      meta.eligible = eligible
+      if (meta.managed && eligible)
+        this.managedChannels.set(channelId, Date.now())
+      if (meta.managed) {
+        const autoslug = quill.getModule('autoslug')
+        if (autoslug?.options)
+          autoslug.options.includeAllBroadcastKeywords = eligible
+        autocomplete.props.includeAllBroadcastKeywords = eligible
+      }
     }
-    const hasBroadcast =
-      meta.eligible && deltaCandidateKinds(quill.getContents?.()).size > 0
+
+    let hasBroadcast = meta.hasBroadcast === true
+    if (meta.eligible && (meta.dirty || channelChanged)) {
+      meta.dirty = false
+      try {
+        hasBroadcast = deltaCandidateKinds(quill.getContents?.()).size > 0
+      } catch {
+        // noop
+      }
+      meta.hasBroadcast = hasBroadcast
+    }
     const preflightKey =
       hasBroadcast && /^[TE][A-Z0-9]+$/.test(teamId)
         ? `${teamId}:${channelId}`
@@ -1329,7 +1372,7 @@ export default class bChannel extends TautPlugin {
     if (preflightKey && meta.preflightKey !== preflightKey) {
       meta.preflightKey = preflightKey
       void this.warmChannelReadiness(teamId, channelId, meta.store)
-    } else if (!preflightKey) {
+    } else if (!preflightKey && meta.preflightKey) {
       meta.preflightKey = ''
     }
   }
@@ -1350,12 +1393,53 @@ export default class bChannel extends TautPlugin {
   }
 
   private installComposerIntegration() {
-    for (const event of ['focusin', 'beforeinput', 'input', 'compositionend']) {
-      document.addEventListener?.(event, this.scheduleComposerUpgrade, true)
+    const upgradeFromEvent = (event: Event) => {
+      const node = event.target as Node | null
+      if (node?.nodeType !== 1) return
+      const el = node as Element
+      let composer = el.closest?.(COMPOSER_SELECTOR) || null
+      if (!composer && el.matches?.(COMPOSER_SELECTOR)) composer = el
+      if (composer) this.upgradeComposer(composer)
+    }
+    this.upgradeFromEvent = upgradeFromEvent
+    for (const event of ['focusin', 'input', 'compositionend']) {
+      document.addEventListener?.(event, upgradeFromEvent, true)
     }
     const root = document.documentElement || document.body
     if (typeof window.MutationObserver === 'function' && root) {
-      this.observer = new window.MutationObserver(this.scheduleComposerUpgrade)
+      // only composers live in these containers; skip the rest of slack's churn
+      const containerSelector =
+        '.p-message_pane_input, .p-message_input, .p-threads_footer, .ql-container, [data-qa="message_input"], [data-qa="texty_input"]'
+      const affectsComposer = (records: MutationRecord[]): boolean => {
+        for (const record of records) {
+          const target = record.target as Element | null
+          if (target && target.nodeType === 1) {
+            try {
+              if (target.closest?.(containerSelector)) return true
+            } catch {
+              // noop
+            }
+          }
+          for (const node of Array.from(record.addedNodes)) {
+            if (node && node.nodeType === 1) {
+              try {
+                const el = node as Element
+                if (
+                  el.matches?.(COMPOSER_SELECTOR) ||
+                  el.querySelector?.(COMPOSER_SELECTOR)
+                )
+                  return true
+              } catch {
+                // noop
+              }
+            }
+          }
+        }
+        return false
+      }
+      this.observer = new window.MutationObserver((records) => {
+        if (affectsComposer(records)) this.scheduleComposerUpgrade()
+      })
       this.observer.observe(root, {
         childList: true,
         subtree: true,
@@ -1735,22 +1819,23 @@ export default class bChannel extends TautPlugin {
     this.originalFetch = window.fetch
     // @ts-expect-error assign a plain function to window.fetch
     window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = requestUrl(input)
+      let kind = 0
+      if (init) {
+        const url = requestUrl(input)
+        if (url.indexOf('/api/chat.postMessage') !== -1) kind = 1
+        else if (url.indexOf('/api/files.completeUploadExternal') !== -1)
+          kind = 2
+        else if (url.indexOf('/api/chat.delete') !== -1) kind = 3
+      }
+      if (!kind) return this.nativeFetch(input, init)
       const body = init?.body
-      const candidate = init
-        ? POST_MESSAGE_RE.test(url)
-          ? candidateFromBody(body)
-          : COMPLETE_UPLOAD_RE.test(url)
-            ? candidateFromFileCompletion(body)
-            : DELETE_MESSAGE_RE.test(url)
-              ? candidateFromDelete(body)
-              : null
-        : null
-      if (
-        candidate &&
-        DELETE_MESSAGE_RE.test(url) &&
-        this.isBChannelMessage(candidate.channelId, candidate.ts)
-      ) {
+      let candidate = null
+      if (kind === 1) candidate = candidateFromBody(body)
+      else if (kind === 2) candidate = candidateFromFileCompletion(body)
+      else candidate = candidateFromDelete(body)
+      if (candidate && kind === 3) {
+        if (!this.isBChannelMessage(candidate.channelId, candidate.ts))
+          return this.nativeFetch(input, init)
         return this.handoffDelete(candidate).then(({ ok, fallThrough }) =>
           fallThrough
             ? this.nativeFetch(input, init)
@@ -1798,12 +1883,21 @@ export default class bChannel extends TautPlugin {
       url: string | URL,
       ...rest: Array<boolean | string | null>
     ) {
-      ;(this as any).__tautBChannelUrl = String(url)
+      const u = String(url)
+      if (String(method || 'GET').toUpperCase() !== 'POST') {
+        ;(this as any).__tautBChannelPost = false
+        return originalOpen.call(
+          this,
+          method,
+          url,
+          ...(rest as [boolean, ...Array<string | null>])
+        )
+      }
+      ;(this as any).__tautBChannelUrl = u
       ;(this as any).__tautBChannelPost =
-        String(method || 'GET').toUpperCase() === 'POST' &&
-        (POST_MESSAGE_RE.test((this as any).__tautBChannelUrl) ||
-          COMPLETE_UPLOAD_RE.test((this as any).__tautBChannelUrl) ||
-          DELETE_MESSAGE_RE.test((this as any).__tautBChannelUrl))
+        u.indexOf('/api/chat.postMessage') !== -1 ||
+        u.indexOf('/api/files.completeUploadExternal') !== -1 ||
+        u.indexOf('/api/chat.delete') !== -1
       return originalOpen.call(
         this,
         method,
@@ -1822,7 +1916,7 @@ export default class bChannel extends TautPlugin {
       body?: Document | XMLHttpRequestBodyInit | null
     ) {
       const url = (this as any).__tautBChannelUrl || ''
-      if (DELETE_MESSAGE_RE.test(url)) {
+      if (url.indexOf('/api/chat.delete') !== -1) {
         const candidate = candidateFromDelete(body)
         if (candidate && isBChannelMessage(candidate.channelId, candidate.ts)) {
           void handoffDelete(candidate).then(({ ok, fallThrough }) => {
@@ -1855,10 +1949,14 @@ export default class bChannel extends TautPlugin {
           return
         }
       }
-      if ((this as any).__tautBChannelPost && !DELETE_MESSAGE_RE.test(url)) {
-        const candidate = COMPLETE_UPLOAD_RE.test(url)
-          ? candidateFromFileCompletion(body)
-          : candidateFromBody(body)
+      if (
+        (this as any).__tautBChannelPost &&
+        url.indexOf('/api/chat.delete') === -1
+      ) {
+        const candidate =
+          url.indexOf('/api/files.completeUploadExternal') !== -1
+            ? candidateFromFileCompletion(body)
+            : candidateFromBody(body)
         if (candidate) {
           this.addEventListener(
             'load',
@@ -1909,10 +2007,22 @@ export default class bChannel extends TautPlugin {
       return <Original {...props} prepareAndSendMessage={send} />
     })
 
-    this.log('active')
+    this.log('Started')
+
+    this.evictionTimer = window.setInterval(() => {
+      const now = Date.now()
+      for (const [key, at] of this.readyChannels)
+        if (now - at >= READY_CHANNEL_TTL_MS) this.readyChannels.delete(key)
+      for (const [key, entry] of this.setupCache)
+        if (now >= entry.expiresAt) this.setupCache.delete(key)
+      for (const [key, at] of this.managedChannels)
+        if (now - at >= MANAGED_CHANNEL_TTL_MS) this.managedChannels.delete(key)
+    }, 5 * 60_000)
   }
 
   stop(): void {
+    if (this.evictionTimer) window.clearInterval(this.evictionTimer)
+    this.evictionTimer = null
     if (this.originalFetch) window.fetch = this.originalFetch
     if (this.originalXHROpen)
       XMLHttpRequest.prototype.open = this.originalXHROpen
@@ -1922,9 +2032,11 @@ export default class bChannel extends TautPlugin {
     this.originalXHROpen = null
     this.originalXHRSend = null
 
-    for (const event of ['focusin', 'beforeinput', 'input', 'compositionend']) {
-      document.removeEventListener(event, this.scheduleComposerUpgrade, true)
+    for (const event of ['focusin', 'input', 'compositionend']) {
+      if (this.upgradeFromEvent)
+        document.removeEventListener(event, this.upgradeFromEvent, true)
     }
+    this.upgradeFromEvent = null
     this.observer?.disconnect()
     this.observer = null
     if (this.composerFrame) {
