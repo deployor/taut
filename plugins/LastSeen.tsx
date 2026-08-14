@@ -7,11 +7,25 @@ type LastSeenConfig = TautPluginConfig & {
   showObservedPresence: boolean
 }
 
-type PresenceProps = { member?: { id?: string } }
+type PresenceProps = {
+  showText?: boolean
+  isActive?: boolean
+  isSelf?: boolean
+  className?: string
+}
+type ProfileProps = { member?: { id?: string } }
+type HoverCardProps = { memberId?: string }
+type LocalTimeProps = { member?: { id?: string } }
 type SearchResponse = { messages?: { matches?: { ts?: string }[] } }
+type StoreMessage = {
+  user?: unknown
+  ts?: unknown
+  bot_id?: unknown
+  app_id?: unknown
+}
 
-const SEEN_KEY = 'observed'
 const MAX_SEEN = 2000
+const SCAN_EVERY = 15_000
 const UNITS = [
   ['day', 24 * 60 * 60 * 1000],
   ['hour', 60 * 60 * 1000],
@@ -22,6 +36,11 @@ const UNITS = [
 const human = (msg: RtmEvent | undefined, id: unknown) =>
   msg && typeof id === 'string' && !msg.bot_id && !msg.app_id ? id : undefined
 
+const when = (event: RtmEvent): number => {
+  const at = Number.parseFloat(event.event_ts ?? event.ts)
+  return at > 0 ? at * 1000 : Date.now()
+}
+
 const ACTIVITY: Record<
   string,
   (event: RtmEvent) => string | string[] | undefined
@@ -30,6 +49,7 @@ const ACTIVITY: Record<
   presence_change: (e) =>
     e.presence === 'active' ? (e.users ?? e.user) : undefined,
   user_typing: (e) => e.user,
+  // a reply carries the parent's own edited.user, from whenever that edit was
   message: (e) =>
     human(e, e.user) ??
     (e.subtype === 'message_changed'
@@ -72,38 +92,84 @@ export default class LastSeen extends TautPlugin {
     ttl: 6 * 60 * 60 * 1000,
     maxSize: 2000,
   })
-  /** when we last saw each person go active, in ms */
-  private seen: Record<string, number> = {}
-  private saveTimer: ReturnType<typeof setTimeout> | null = null
+  /** when we last saw each person do something, in ms */
+  private seen = new this.api.Cache<number>('observed', { maxSize: MAX_SEEN })
+
+  private Surface = React.createContext<
+    { userId?: string; card?: boolean } | undefined
+  >(undefined)
+  private scanned = 0
 
   private get options(): LastSeenConfig {
     return this.config as LastSeenConfig
   }
 
   async start() {
-    this.seen = await this.api.storage.get<Record<string, number>>(SEEN_KEY, {})
+    await this.seen.load()
     await this.messages.load()
     if (this.api.signal.aborted) return
 
-    if (this.options.showObservedPresence !== false)
+    if (this.options.showObservedPresence !== false) {
       for (const [type, who] of Object.entries(ACTIVITY))
-        this.api.rtm.on(type, (event) => this.sighting(who(event)))
+        this.api.rtm.on(type, (event) => this.sighting(who(event), when(event)))
+      this.readStore()
+    }
+
+    this.api.patchComponent<ProfileProps>(
+      'RimetoProfilePresence',
+      (Original) => (props) => (
+        <this.Surface.Provider value={{ userId: props.member?.id }}>
+          <Original {...props} />
+        </this.Surface.Provider>
+      )
+    )
+    this.api.patchComponent<HoverCardProps>(
+      'MemberProfileHoverCard',
+      (Original) => (props) => (
+        <this.Surface.Provider value={{ userId: props.memberId, card: true }}>
+          <Original {...props} />
+        </this.Surface.Provider>
+      )
+    )
 
     this.api.patchComponent<PresenceProps>(
-      'RimetoProfilePresence',
+      'Presence',
       (Original) => (props) => {
-        const id = props.member?.id
+        const surface = React.useContext(this.Surface)
+        const id =
+          props.showText && !props.isActive && !props.isSelf && !surface?.card
+            ? surface?.userId
+            : undefined
+        const seen = this.useLastSeen(id)
+        if (!seen) return <Original {...props} />
+        return (
+          <>
+            <Original {...props} showText={false} />
+            <span className="padding_left_50 taut-last-seen" aria-hidden="true">
+              {`Last seen ${ago(seen)}`}
+            </span>
+          </>
+        )
+      }
+    )
+
+    // the hovercard shows a dot with no words, so it gets a line of its own
+    this.api.patchComponent<LocalTimeProps>(
+      'LocalTime',
+      (Original) => (props) => {
+        const surface = React.useContext(this.Surface)
+        const id = surface?.card ? props.member?.id : undefined
         return (
           <>
             <Original {...props} />
-            {id ? <this.LastSeenLine userId={id} /> : null}
+            {id ? <this.CardLine userId={id} /> : null}
           </>
         )
       }
     )
 
     this.api.setStyle(`
-      .taut-last-seen {
+      .taut-last-seen__card {
         display: block;
         margin-top: 2px;
         font-size: 13px;
@@ -114,66 +180,75 @@ export default class LastSeen extends TautPlugin {
     this.log('Started')
   }
 
-  stop(): void {
-    if (this.saveTimer) clearTimeout(this.saveTimer)
-    this.saveTimer = null
+  // scan all the messages in the store to fill last seen data
+  private readStore() {
+    if (Date.now() - this.scanned < SCAN_EVERY) return
+    this.scanned = Date.now()
+    const messages = this.api.redux.getStore()?.getState()?.messages
+    if (!messages || typeof messages !== 'object') return
+    // both levels keep their real keys on the prototype
+    const keys = (value: object) => Object.keys(Object.getPrototypeOf(value))
+    for (const channel of keys(messages)) {
+      const bucket = messages[channel]
+      if (!bucket || typeof bucket !== 'object') continue
+      for (const ts of keys(bucket)) {
+        const msg = bucket[ts] as StoreMessage | undefined
+        if (!msg || typeof msg !== 'object' || msg.bot_id || msg.app_id)
+          continue
+        if (typeof msg.user === 'string')
+          this.sighting(msg.user, Number.parseFloat(String(msg.ts)) * 1000)
+      }
+    }
   }
 
-  private LastSeenLine = ({ userId }: { userId: string }) => {
-    const [lastMessage, setLastMessage] = React.useState<number | null>(
-      () => this.messages.get(userId) ?? null
-    )
-    const presence = this.api.redux.useReduxState(
-      (state) => state.presence?.[userId]?.presence
-    )
-
+  private useLastSeen(userId: string | undefined) {
+    const [seen, setSeen] = React.useState(0)
     React.useEffect(() => {
-      if (this.options.showLastMessage === false) return
+      if (!userId) return setSeen(0)
+      this.readStore()
       let live = true
-      this.lastMessageOf(userId)
-        .then((at) => {
-          if (live) setLastMessage(at)
-        })
-        .catch(() => {})
+      const settle = (message: number | null) => {
+        if (!live) return
+        const observed =
+          this.options.showObservedPresence === false
+            ? 0
+            : (this.seen.get(userId) ?? 0)
+        setSeen(Math.max(observed, message ?? 0))
+      }
+      settle(null)
+      if (this.options.showLastMessage !== false)
+        this.lastMessageOf(userId)
+          .then(settle)
+          .catch(() => {})
       return () => {
         live = false
       }
     }, [userId])
+    return seen
+  }
 
-    if (presence === 'active') return null
-    const observed =
-      this.options.showObservedPresence === false
-        ? undefined
-        : this.seen[userId]
-    const at = Math.max(observed ?? 0, lastMessage ?? 0)
-    if (!at) return null
-
+  private CardLine = ({ userId }: { userId: string }) => {
+    const seen = this.useLastSeen(userId)
+    const presence = this.api.redux.useReduxState(
+      (state) => state.presence?.[userId]?.presence
+    )
+    if (!seen || presence === 'active') return null
     return (
-      <span className="taut-last-seen" title={new Date(at).toLocaleString()}>
-        {`Last seen ${ago(at)}`}
+      <span
+        className="taut-last-seen__card"
+        title={new Date(seen).toLocaleString()}
+      >
+        {`Last seen ${ago(seen)}`}
       </span>
     )
   }
 
-  private sighting(who: string | string[] | undefined) {
-    if (!who) return
-    const now = Date.now()
-    for (const id of typeof who === 'string' ? [who] : who) this.seen[id] = now
-    this.save()
-  }
-
-  private save() {
-    if (this.saveTimer) return
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = null
-      const ids = Object.keys(this.seen)
-      if (ids.length > MAX_SEEN) {
-        ids.sort((a, b) => (this.seen[a] ?? 0) - (this.seen[b] ?? 0))
-        for (const id of ids.slice(0, ids.length - MAX_SEEN))
-          delete this.seen[id]
-      }
-      void this.api.storage.set(SEEN_KEY, this.seen)
-    }, 2000)
+  private sighting(who: string | string[] | undefined, at: number) {
+    if (!who || !(at > 0)) return
+    for (const id of typeof who === 'string' ? [who] : who) {
+      const known = this.seen.get(id)
+      if (known === undefined || known < at) this.seen.set(id, at)
+    }
   }
 
   private lastMessageOf(userId: string) {

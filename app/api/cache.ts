@@ -3,25 +3,28 @@
 import type { BlobStore } from '../../shared/TautBridge'
 
 type CacheEntry<T> = { value: T; ts: number }
-export type CacheOptions = { ttl: number; maxSize?: number }
+export type CacheOptions = { ttl?: number; maxSize?: number }
+
+const WRITE_DELAY = 2000
 
 /**
  * Persistent TTL cache with fetch-dedup
  */
 export class Cache<T> {
   private storageKey: string
-  private ttl: number
+  private ttl?: number
   private maxSize?: number
   private memory = new Map<string, CacheEntry<T>>()
   private pending = new Map<string, Promise<T>>()
   private revision = 0
   private generation = 0
   private writeQueue = Promise.resolve()
+  private writeTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     private blob: BlobStore,
     cacheKey: string,
-    options: CacheOptions
+    options: CacheOptions = {}
   ) {
     this.storageKey = cacheKey
     this.ttl = options.ttl
@@ -29,16 +32,20 @@ export class Cache<T> {
   }
 
   private fresh(entry: CacheEntry<T>): boolean {
-    return Date.now() - entry.ts < this.ttl
+    return this.ttl === undefined || Date.now() - entry.ts < this.ttl
   }
 
   private persist() {
-    const value = JSON.stringify(Object.fromEntries(this.memory))
-    this.writeQueue = this.writeQueue
-      .catch(() => {})
-      .then(async () => {
-        await this.blob.write(this.storageKey, value)
-      })
+    if (this.writeTimer) return
+    this.writeTimer = setTimeout(() => {
+      this.writeTimer = null
+      const value = JSON.stringify(Object.fromEntries(this.memory))
+      this.writeQueue = this.writeQueue
+        .catch(() => {})
+        .then(async () => {
+          await this.blob.write(this.storageKey, value)
+        })
+    }, WRITE_DELAY)
   }
 
   async load() {
@@ -70,9 +77,10 @@ export class Cache<T> {
     this.revision++
     this.memory.set(key, { value, ts: Date.now() })
     if (this.maxSize !== undefined && this.memory.size > this.maxSize) {
-      for (const k of [...this.memory.keys()].slice(0, 100)) {
-        this.memory.delete(k)
-      }
+      const oldest = [...this.memory.entries()]
+        .sort((a, b) => a[1].ts - b[1].ts)
+        .slice(0, this.memory.size - this.maxSize)
+      for (const [k] of oldest) this.memory.delete(k)
     }
     this.persist()
   }
@@ -103,6 +111,8 @@ export class Cache<T> {
     this.generation++
     this.memory.clear()
     this.pending.clear()
+    if (this.writeTimer) clearTimeout(this.writeTimer)
+    this.writeTimer = null
     this.writeQueue = this.writeQueue
       .catch(() => {})
       .then(async () => {
@@ -113,7 +123,7 @@ export class Cache<T> {
 
 export function bindCache(blob: BlobStore) {
   return class BoundCache<T> extends Cache<T> {
-    constructor(cacheKey: string, options: CacheOptions) {
+    constructor(cacheKey: string, options?: CacheOptions) {
       super(blob, cacheKey, options)
     }
   }
