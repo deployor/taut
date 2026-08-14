@@ -30,12 +30,17 @@ const ACTIVITY: Record<
   presence_change: (e) =>
     e.presence === 'active' ? (e.users ?? e.user) : undefined,
   user_typing: (e) => e.user,
-  message: (e) => human(e, e.user) ?? human(e.message, e.message?.edited?.user),
+  message: (e) =>
+    human(e, e.user) ??
+    (e.subtype === 'message_changed'
+      ? human(e.message, e.message?.edited?.user)
+      : undefined),
   reaction_added: (e) => e.user,
   reaction_removed: (e) => e.user,
   pin_added: (e) => e.user,
   pin_removed: (e) => e.user,
   file_shared: (e) => e.user_id,
+  sh_room_join: (e) => e.user,
 }
 
 function ago(at: number): string {
