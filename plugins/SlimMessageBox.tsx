@@ -1,4 +1,4 @@
-// A one-line composer, with optional hiding of the buttons around it
+// Simplifies and cleans up the message box
 
 import { TautPlugin, type TautPluginConfig } from '$taut'
 
@@ -129,10 +129,10 @@ const COMPACT_CSS = `
 export default class SlimMessageBox extends TautPlugin {
   static readonly id = 'SlimMessageBox'
   static readonly pluginName = 'Slim Message Box'
-  static readonly description = 'ozempic for your message box!'
+  static readonly description = 'Simplifies and cleans up the message box'
   static readonly authors = '<@U06UYA5GMB5>, <@U080A3QP42C>'
   static readonly defaultConfig = `
-    // A one-line composer, with optional hiding of the buttons around it
+    // Simplifies and cleans up the message box
     "SlimMessageBox": {
       "enabled": false,
       "oneLineLayout": true,
