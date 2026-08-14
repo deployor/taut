@@ -55,6 +55,13 @@ export type ConfirmationModalProps = {
   disableSubmitButton?: boolean
 }
 
+/** the error line under a form field, warning icon included */
+export type InlineAlertProps = {
+  children?: React.ReactNode
+  className?: string
+  id?: string
+}
+
 export type LabelProps = {
   text: React.ReactNode
   htmlFor?: string
@@ -143,6 +150,7 @@ export const elementsAPIPromise = (async () => {
     Tooltip: resolve<TooltipProps>('Tooltip'),
     IconButtonBase: resolve<IconButtonBaseProps>('IconButtonBase'),
     ConfirmationModal: resolve<ConfirmationModalProps>('ConfirmationModal'),
+    InlineAlert: resolve<InlineAlertProps>('InlineAlert'),
     Label: resolve<LabelProps>('Label'),
     FormTextInput: resolve<FormTextInputProps>('FormTextInput'),
     MenuTrigger: resolve<MenuTriggerProps>('MenuTrigger'),

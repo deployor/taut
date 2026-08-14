@@ -32,10 +32,7 @@ type Attachment = {
   ts?: string
 }
 
-/**
- * bots that post on someone's behalf, and where each records who that was
- * must be a trusted bot!
- */
+/** trusted bots that post for someone, and where each records who */
 const RELAY_BOTS: Record<string, (msg: SlackMessage) => unknown> = {
   // at-channel
   B08G06U6SJG: (msg) => msg.metadata?.event_payload?.source_user_id,
@@ -80,7 +77,7 @@ export default class ShowRealUser extends TautPlugin {
   /** the same message, minus every trace of the bot that carried it */
   private asSentBy(msg: SlackMessage, user: string): SlackMessage {
     const real = { ...msg, user }
-    // Slack tests some of these with `in` so we should delete them
+    // Slack tests some of these with `in`, so delete rather than blank them
     for (const key of [
       'bot_id',
       'app_id',
@@ -94,21 +91,19 @@ export default class ShowRealUser extends TautPlugin {
     return real
   }
 
-  // slack omits include_all_metadata, so the store keeps event_type and drops
-  // the payload, leaving us to fetch it ourselves
+  // the store keeps event_type but drops the payload, so fetch it ourselves
   private async lookUp(key: string) {
     const [channel, ts] = key.split(':')
     try {
       await this.senders.fetch(key, async () => {
-        const res = await this.api.userAPI('conversations.history', {
-          channel,
-          oldest: ts,
-          latest: ts,
-          inclusive: 'true',
-          limit: '1',
-          include_all_metadata: 'true',
+        const res = await this.api.userAPI('message.list', {
+          message_ids: JSON.stringify([{ channel, timestamps: [ts] }]),
+          org_wide_aware: 'true',
+          cached_latest_updates: '{}',
         })
-        const found = res.messages?.[0] as SlackMessage | undefined
+        const found = res?.messages_data?.[channel]?.messages?.[0] as
+          | SlackMessage
+          | undefined
         const relay = this.relay(found)
         return (relay && this.validId(relay(found as SlackMessage))) ?? null
       })

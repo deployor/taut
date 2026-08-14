@@ -10,6 +10,7 @@ export type { MenuProps } from '../app/api/menu'
 export type { ModalHandle, OpenModalOptions } from '../app/api/modal'
 export type { TautAPI } from '../app/pluginManager'
 export type { ComponentType, componentReplacer } from '../app/slack/react'
+export type { RtmEvent } from '../app/slack/rtm'
 
 export interface TautPluginConfig {
   enabled: boolean

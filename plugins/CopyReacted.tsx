@@ -18,7 +18,7 @@ export default class CopyReacted extends TautPlugin {
   static readonly pluginName = 'Copy Reacted'
   static readonly description =
     'Copy the list of people who reacted to a message'
-  static readonly authors = '<@U06UYA5GMB5>'
+  static readonly authors = '<@U06UYA5GMB5>, <@U080A3QP42C>'
   static readonly defaultConfig = `
     // Copy the list of people who reacted to a message
     "CopyReacted": {

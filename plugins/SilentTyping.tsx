@@ -11,7 +11,7 @@ export default class SilentTyping extends TautPlugin {
   static readonly defaultConfig = `
     // Adds a button to suppress typing indicators so others can't see when you're typing
     "SilentTyping": {
-      "enabled": true
+      "enabled": false
     }
   `
 
@@ -58,27 +58,26 @@ export default class SilentTyping extends TautPlugin {
     const IconButtonBase = this.api.elements.IconButtonBase
     const SvgIcon = this.api.elements.SvgIcon
 
-    this.api.patchComponent<object>('TextyButtons', (Original) => (props) => {
-      const [isSuppressed, setIsSuppressed] = React.useState(this.suppressed)
+    this.api.patchComponent<{ children?: React.ReactNode }>(
+      'TextyButtonOverflow',
+      (Original) => (props) => {
+        const [isSuppressed, setIsSuppressed] = React.useState(this.suppressed)
 
-      React.useEffect(() => {
-        this.listeners.add(setIsSuppressed)
-        return () => {
-          this.listeners.delete(setIsSuppressed)
-        }
-      }, [])
+        React.useEffect(() => {
+          this.listeners.add(setIsSuppressed)
+          return () => {
+            this.listeners.delete(setIsSuppressed)
+          }
+        }, [])
 
-      const label = isSuppressed
-        ? 'Allow typing notifications'
-        : 'Suppress typing notifications'
+        const label = isSuppressed
+          ? 'Allow typing notifications'
+          : 'Suppress typing notifications'
 
-      return (
-        <div
-          className="taut-silent-typing-wrapper"
-          style={{ display: 'flex', alignItems: 'center' }}
-        >
-          <Original {...props} />
+        const children = React.Children.toArray(props.children)
+        children.push(
           <Tooltip
+            key="taut-silent-typing"
             tip={label}
             position="top"
             offsetY={-7}
@@ -86,6 +85,7 @@ export default class SilentTyping extends TautPlugin {
             zIndex="above_fs"
           >
             <IconButtonBase
+              className="c-wysiwyg_container__button"
               aria-pressed={String(isSuppressed)}
               aria-label={label}
               onClick={() => this.setSuppressed(!isSuppressed)}
@@ -93,21 +93,15 @@ export default class SilentTyping extends TautPlugin {
               size="smedium"
             >
               <SvgIcon
-                name={
-                  isSuppressed
-                    ? 'notifications-off'
-                    : 'notifications' /* notifications-all-new-posts */
-                }
+                name={isSuppressed ? 'notifications-off' : 'notifications'}
                 size={18}
               />
             </IconButtonBase>
           </Tooltip>
-        </div>
-      )
-    })
+        )
 
-    this.api.setStyle(
-      `.taut-silent-typing-wrapper .c-texty_buttons { flex: 1; min-width: 0; }`
+        return <Original {...props}>{children}</Original>
+      }
     )
 
     this.log('Started')

@@ -23,6 +23,7 @@ import { initJsonc } from './cdn'
 import type { ConfigStore } from './configStore'
 import { deepEqual } from './helpers'
 import { channelsPromise } from './slack/channels'
+import { filesPromise } from './slack/files'
 import { membersPromise } from './slack/members'
 import {
   findComponentPromise,
@@ -30,6 +31,7 @@ import {
   reactPromise,
 } from './slack/react'
 import { reduxPromise } from './slack/redux'
+import { rtmPromise } from './slack/rtm'
 import { findByPropsPromise, findExportPromise } from './slack/webpack'
 
 const PLUGIN_ID_RE = /^[A-Za-z0-9_.-]+$/
@@ -74,6 +76,8 @@ async function makeBaseTautAPI(bridge: TautBridge) {
     redux: await reduxPromise,
     members: await membersPromise,
     channels: await channelsPromise,
+    files: await filesPromise,
+    rtm: await rtmPromise,
     fetch: bridge.fetch.bind(bridge),
     userAPI,
     cookies: bridge.cookies ?? null,
@@ -193,6 +197,7 @@ function createScopedAPI(
       patchSlice: tracked(base.redux.patchSlice),
       patchThunk: tracked(base.redux.patchThunk),
     },
+    rtm: { ...base.rtm, on: tracked(base.rtm.on) },
     onMessageSendDelta: tracked(base.onMessageSendDelta),
     setStyle: tracked((css: string | null, key?: string) =>
       base.setStyle(css, key === undefined ? undefined : `plugin:${id}:${key}`)

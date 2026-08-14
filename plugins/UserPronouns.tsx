@@ -2,13 +2,32 @@
 
 import { TautPlugin } from '$taut'
 
+type Message = { user?: string; bot_id?: string }
+
 type BroadcastPreambleProps = {
-  msg?: { user?: string; bot_id?: string }
+  msg?: Message
   children?: React.ReactNode
+}
+
+// the thread pane builds its header itself instead of taking children
+type ThreadHeaderProps = {
+  msg?: Message
+  adjacent?: boolean
+  visible?: boolean
+  omitTimestamp?: boolean
+  omitLinebreak?: boolean
 }
 
 const USER_ID_RE = /^[UW][A-Z0-9]+$/
 const MAX_LENGTH = 40
+
+const isPerson = (
+  msg: Message | undefined
+): msg is Message & { user: string } =>
+  !!msg?.user &&
+  USER_ID_RE.test(msg.user) &&
+  msg.user !== 'USLACKBOT' &&
+  !msg.bot_id
 
 // grouped messages get the same children back with visible: false
 const isHeaderChild = (child: React.ReactNode, prop: string): boolean => {
@@ -83,19 +102,11 @@ export default class UserPronouns extends TautPlugin {
       `
     )
 
-    // the one component handed both the sender and the timestamp
+    // the component handed both the sender and the timestamp, in channels
     this.api.patchComponent<BroadcastPreambleProps>(
       'BroadcastPreamble',
       (Original) => (props) => {
-        const userId = props.msg?.user
-        if (
-          !userId ||
-          !USER_ID_RE.test(userId) ||
-          userId === 'USLACKBOT' ||
-          props.msg?.bot_id
-        ) {
-          return <Original {...props} />
-        }
+        if (!isPerson(props.msg)) return <Original {...props} />
 
         const children = React.Children.toArray(props.children)
         const timestamp = children.findIndex(isTimestamp)
@@ -103,17 +114,36 @@ export default class UserPronouns extends TautPlugin {
           timestamp === -1 ? children.findIndex(isSender) : timestamp
         if (anchor === -1) return <Original {...props} />
 
-        // the bullet only earns its place as a separator from the timestamp
         children.splice(
           anchor + 1,
           0,
           <this.Pronouns
             key="taut-pronouns"
-            userId={userId}
+            userId={props.msg.user}
             bulleted={timestamp !== -1}
           />
         )
         return <Original {...props}>{children}</Original>
+      }
+    )
+
+    // the thread-pane counterpart, which ends on a <br> we have to be aware of
+    this.api.patchComponent<ThreadHeaderProps>(
+      'ThreadSenderAndTimestampGeneric',
+      (Original) => (props) => {
+        if (props.adjacent || props.visible === false || !isPerson(props.msg))
+          return <Original {...props} />
+
+        return (
+          <>
+            <Original {...props} omitLinebreak />
+            <this.Pronouns
+              userId={props.msg.user}
+              bulleted={!props.omitTimestamp}
+            />
+            {props.omitLinebreak ? null : <br />}
+          </>
+        )
       }
     )
 

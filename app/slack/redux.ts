@@ -238,56 +238,107 @@ type ThunkWrap = {
 }
 const thunkWraps = new Set<ThunkWrap>()
 
-const isThunkCreator = (v: any): boolean =>
-  typeof v === 'function' && (v as any).isThunkCreator === true
+type ThunkCreator = (...args: any[]) => any
 
-function wrapThunkCreator(original: (...args: any[]) => any) {
-  const wrapper = (...args: any[]) => {
-    let creator = original
-    for (const { match, wrap } of thunkWraps) {
-      let matched = false
-      try {
-        matched = match(original)
-      } catch {}
-      if (!matched) continue
-      try {
-        creator = wrap(creator)
-      } catch {}
-    }
-    return creator(...args)
-  }
-  // Keep the creator's identity
-  for (const k of Object.keys(original)) {
-    try {
-      ;(wrapper as any)[k] = (original as any)[k]
-    } catch {}
-  }
-  return wrapper
+const thunkCreators = new Map<string, ThunkCreator>()
+const waitingForThunk = new Map<string, Set<(creator: ThunkCreator) => void>>()
+
+const wrapCreator = (original: ThunkCreator): ThunkCreator =>
+  new Proxy(original, {
+    apply(target, thisArg, args) {
+      let creator: ThunkCreator = target
+      for (const { match, wrap } of thunkWraps) {
+        let matched = false
+        try {
+          matched = match(target)
+        } catch {}
+        if (!matched) continue
+        try {
+          creator = wrap(creator)
+        } catch {}
+      }
+      return Reflect.apply(creator, thisArg, args)
+    },
+  })
+
+function registerCreator(creator: ThunkCreator): void {
+  // the defining module assigns `meta` on the statement after createThunk
+  queueMicrotask(() => {
+    // now that statement has run, the meta should be there
+    const name = (creator as any).meta?.name
+    if (typeof name !== 'string') return
+    thunkCreators.set(name, creator)
+    const waiting = waitingForThunk.get(name)
+    if (!waiting) return
+    waitingForThunk.delete(name)
+    for (const resolve of waiting) resolve(creator)
+  })
 }
 
-patchModuleExports((exports) => {
-  if (isThunkCreator(exports)) return wrapThunkCreator(exports)
-  if (!exports || typeof exports !== 'object') return
-  let changed = false
-  const descriptors = Object.getOwnPropertyDescriptors(exports)
-  for (const key of Object.keys(exports)) {
-    let value: any
-    try {
-      value = exports[key]
-    } catch {
-      continue
-    }
-    if (!isThunkCreator(value)) continue
-    descriptors[key] = {
-      value: wrapThunkCreator(value),
-      enumerable: descriptors[key]?.enumerable ?? true,
-      configurable: true,
-      writable: true,
-    }
-    changed = true
+const readExport = (exports: any, key: string): any => {
+  try {
+    return exports[key]
+  } catch {
+    return undefined
   }
-  if (changed) return Object.create(Object.getPrototypeOf(exports), descriptors)
+}
+const isThunkKinds = (value: any): boolean =>
+  value?.Thunk === 'Thunk' && value?.Fetcher === 'Fetcher'
+
+// Every thunk and fetcher in the app uses createThunk
+patchModuleExports((exports) => {
+  if (!exports || typeof exports !== 'object') return
+  const keys = Object.keys(exports)
+  if (!keys.some((key) => isThunkKinds(readExport(exports, key)))) return
+  const key = keys.find((candidate) => {
+    const value = readExport(exports, candidate)
+    return typeof value === 'function' && value.length === 2
+  })
+  if (!key) return
+
+  const createThunk = exports[key] as (...args: any[]) => ThunkCreator
+  const descriptors = Object.getOwnPropertyDescriptors(exports)
+  descriptors[key] = {
+    value: (...args: any[]) => {
+      const creator = wrapCreator(createThunk(...args))
+      registerCreator(creator)
+      return creator
+    },
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  }
+  return Object.create(Object.getPrototypeOf(exports), descriptors)
 })
+
+/** one of Slack's thunk creators, if it has been defined yet */
+export function getThunkCreator(name: string): ThunkCreator | undefined {
+  return thunkCreators.get(name)
+}
+
+/** one of Slack's thunk creators, resolving whenever Slack gets around to defining it */
+export function waitForThunkCreator(name: string): Promise<ThunkCreator> {
+  const known = thunkCreators.get(name)
+  if (known) return Promise.resolve(known)
+  return new Promise((resolve) => {
+    let waiting = waitingForThunk.get(name)
+    if (!waiting) {
+      waiting = new Set()
+      waitingForThunk.set(name, waiting)
+    }
+    waiting.add(resolve)
+  })
+}
+
+export async function dispatchThunk<T = any>(
+  name: string,
+  ...args: any[]
+): Promise<T> {
+  const creator = await waitForThunkCreator(name)
+  const store = getReduxStore()
+  if (!store) throw new Error('[Taut] No redux store to dispatch to')
+  return store.dispatch(creator(...args))
+}
 
 /** Observe or alter a Slack redux thunk */
 export function patchThunk(
@@ -336,6 +387,9 @@ export const reduxPromise = (async () => {
     patchSlice,
     mapEntries,
     patchThunk,
+    getThunkCreator,
+    waitForThunkCreator,
+    dispatchThunk,
     refresh: refreshState,
   }
 })()

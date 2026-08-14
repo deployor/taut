@@ -29,7 +29,7 @@ export default class ClearURLs extends TautPlugin {
   static readonly pluginName = 'Clear URLs'
   static readonly description =
     'Strips tracking parameters from URLs before sending messages (rules from <https://github.com/ClearURLs/Rules|ClearURLs>)'
-  static readonly authors = '<@U080A3QP42C>, <@U06UYA5GMB5>'
+  static readonly authors = '<@U06UYA5GMB5>, <@U080A3QP42C>'
   static readonly defaultConfig = `
     // Strips tracking parameters from URLs before sending messages
     // Rules sourced from https://github.com/ClearURLs/Rules

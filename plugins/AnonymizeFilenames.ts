@@ -26,7 +26,7 @@ export default class AnonymizeFileNames extends TautPlugin {
   static readonly pluginName = 'Anonymize Filenames'
   static readonly description =
     'Randomizes file names before uploading to prevent metadata leakage'
-  static readonly authors = '<@U080A3QP42C>, <@U06UYA5GMB5>'
+  static readonly authors = '<@U06UYA5GMB5>, <@U080A3QP42C>'
   static readonly defaultConfig = `
     // Randomizes file names before uploading to prevent metadata leakage
     "AnonymizeFilenames": {

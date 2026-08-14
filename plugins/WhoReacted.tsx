@@ -17,7 +17,7 @@ export default class WhoReacted extends TautPlugin {
   static readonly pluginName = 'Who Reacted'
   static readonly description =
     'Shows the avatars of everyone who reacted next to each reaction'
-  static readonly authors = '<@U06UYA5GMB5>'
+  static readonly authors = '<@U06UYA5GMB5>, <@U080A3QP42C>'
   static readonly defaultConfig = `
     // Shows the avatars of everyone who reacted next to each reaction
     "WhoReacted": {

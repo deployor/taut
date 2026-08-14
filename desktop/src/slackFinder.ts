@@ -65,9 +65,18 @@ export function findSlackAsar(): string {
       // msix install: %ProgramFiles%\WindowsApps\<full name>\app\resources\app.asar
       const programFiles = process.env.ProgramFiles ?? process.env.ProgramW6432
       if (programFiles) {
-        for (const fullName of findStorePackageFullNames(STORE_PACKAGE_PREFIX)) {
+        for (const fullName of findStorePackageFullNames(
+          STORE_PACKAGE_PREFIX
+        )) {
           candidates.push(
-            join(programFiles, 'WindowsApps', fullName, 'app', 'resources', 'app.asar')
+            join(
+              programFiles,
+              'WindowsApps',
+              fullName,
+              'app',
+              'resources',
+              'app.asar'
+            )
           )
         }
       }
