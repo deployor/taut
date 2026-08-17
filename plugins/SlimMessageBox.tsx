@@ -126,6 +126,10 @@ const COMPACT_CSS = `
   ${SCOPE} .c-wysiwyg_container__footer_divider { display: none !important; }
 `
 
+const NO_BROADCAST_CSS = `
+  .p-threads_footer__input_container { min-height: 0; }
+`
+
 export default class SlimMessageBox extends TautPlugin {
   static readonly id = 'SlimMessageBox'
   static readonly pluginName = 'Slim Message Box'
@@ -181,13 +185,15 @@ export default class SlimMessageBox extends TautPlugin {
       )
     )
 
-    if (options.showBroadcastCheckbox === false)
+    if (options.showBroadcastCheckbox === false) {
       this.api.patchComponent<InputContainerProps>(
         'InputContainer',
         (Original) => (props) => (
           <Original {...props} dontShowBroadcastControls />
         )
       )
+      this.api.setStyle(NO_BROADCAST_CSS)
+    }
 
     if (options.oneLineLayout !== false)
       this.api.setStyle(layoutCss(hidden.length))
