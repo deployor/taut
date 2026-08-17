@@ -131,36 +131,50 @@ const hasOwn = (obj: object, key: PropertyKey): boolean =>
 
 export type MapEntry<T> = (key: string, entry: T | undefined) => T | undefined
 
+type Memo = {
+  cache: Map<string, { input: any; output: any }>
+  added: Set<string>
+  version: number
+}
+
+const memos = new WeakMap<MapEntry<any>, Memo>()
+const memoFor = (mapEntry: MapEntry<any>): Memo => {
+  let memo = memos.get(mapEntry)
+  if (!memo) {
+    memo = { cache: new Map(), added: new Set(), version: -1 }
+    memos.set(mapEntry, memo)
+  }
+  return memo
+}
+
 /** A view of an id-keyed store object, reading entries through `mapEntry` */
 export function mapEntries<T = any>(
   object: object,
   mapEntry: MapEntry<T>,
   addedKeys?: () => Iterable<string>
 ): object {
+  const memo = memoFor(mapEntry)
   // A refresh (version bump) means the closure's inputs may have changed, so
   // memoized results and the added-key set are dropped and recomputed.
-  let cache = new Map<string, { input: any; output: any }>()
-  let cacheVersion = -1
-  let added = new Set<string>()
   const sync = () => {
-    if (cacheVersion === statePatchVersion) return
-    cache = new Map()
+    if (memo.version === statePatchVersion) return
+    memo.cache = new Map()
     if (addedKeys) {
       try {
-        added = new Set(addedKeys())
+        memo.added = new Set(addedKeys())
       } catch {
-        added = new Set()
+        memo.added = new Set()
       }
     }
-    cacheVersion = statePatchVersion
+    memo.version = statePatchVersion
   }
   const run = (key: PropertyKey, value: any): any => {
     if (typeof key !== 'string') return value
     sync()
-    const hit = cache.get(key)
+    const hit = memo.cache.get(key)
     if (hit && hit.input === value) return hit.output
     const output = mapEntry(key, value as T | undefined)
-    cache.set(key, { input: value, output })
+    memo.cache.set(key, { input: value, output })
     return output
   }
   const describe = (target: object, key: PropertyKey) => {
@@ -172,7 +186,7 @@ export function mapEntries<T = any>(
     sync()
     if (
       typeof key === 'string' &&
-      added.has(key) &&
+      memo.added.has(key) &&
       Object.isExtensible(target)
     )
       return {
@@ -187,7 +201,7 @@ export function mapEntries<T = any>(
     const keys = Reflect.ownKeys(target)
     if (!addedKeys || !Object.isExtensible(target)) return keys
     sync()
-    const extra = [...added].filter((k) => !hasOwn(target, k))
+    const extra = [...memo.added].filter((k) => !hasOwn(target, k))
     return extra.length ? [...keys, ...extra] : keys
   }
   const protoProxies = new WeakMap<object, object>()
