@@ -16,7 +16,7 @@ type SlimConfig = TautPluginConfig & {
 type TextyButtonsProps = Record<string, unknown>
 type PrefPayload = { pref?: string; value?: unknown }
 type PrefsBoot = { prefsData?: Record<string, unknown> }
-type MessageInputProps = { dontShowBroadcastControls?: boolean }
+type InputContainerProps = { dontShowBroadcastControls?: boolean }
 
 const SCOPE = '.p-message_input__input_container_unstyled'
 
@@ -182,8 +182,8 @@ export default class SlimMessageBox extends TautPlugin {
     )
 
     if (options.showBroadcastCheckbox === false)
-      this.api.patchComponent<MessageInputProps>(
-        'MessageInput',
+      this.api.patchComponent<InputContainerProps>(
+        'InputContainer',
         (Original) => (props) => (
           <Original {...props} dontShowBroadcastControls />
         )
