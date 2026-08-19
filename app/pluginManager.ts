@@ -7,7 +7,7 @@ import {
   type TautPluginConfig,
   type TautPluginConstructor,
 } from '../shared/Plugin'
-import type { BlobStore, TautBridge } from '../shared/TautBridge'
+import type { BlobStore } from '../shared/TautBridge'
 import { AccountSwitcher } from './api/accountSwitcher'
 import { bindCache } from './api/cache'
 import { setStyle } from './api/css'
@@ -67,7 +67,7 @@ function withLifecycleTimeout<T>(
 const global = globalThis as any
 global.TautPlugin = TautPlugin
 
-async function makeBaseTautAPI(bridge: TautBridge) {
+async function makeBaseTautAPI(bridge: NormalizedBridge) {
   const patchComponent = await patchComponentPromise
 
   const TautAPI = {
@@ -239,7 +239,7 @@ export class PluginManager {
   private pluginQueues = new Map<string, Promise<unknown>>()
 
   constructor(
-    protected bridge: NormalizedBridge,
+    readonly bridge: NormalizedBridge,
     protected configStore: ConfigStore
   ) {
     this.baseAPIPromise = makeBaseTautAPI(bridge)

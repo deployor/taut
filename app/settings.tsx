@@ -642,7 +642,6 @@ function ImportControls({
   replacingId?: string
   onDone?: () => void
 }) {
-  const bridge = window.TautBridge
   const [url, setUrl] = React.useState('')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -681,7 +680,7 @@ function ImportControls({
     const urlString = url.trim()
     if (!urlString) return
     run(async () => {
-      const res = await bridge.fetch(urlString)
+      const res = await pluginManager.bridge.fetch(urlString)
       if (!res.ok) throw new Error(`Failed to fetch (HTTP ${res.status})`)
       return res.text()
     })

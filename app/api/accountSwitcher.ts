@@ -22,7 +22,8 @@
 //   start of the next boot, before Slack reads `localConfig_v2`. The cookie,
 //   unlike localStorage, persists across the reload and needs no re-apply.
 
-import type { TautBridge, TautCookie } from '../../shared/TautBridge'
+import type { TautCookie } from '../../shared/TautBridge'
+import type { NormalizedBridge } from '../bridgeCompat'
 import {
   getActiveTeam,
   type LocalConfigTeam,
@@ -86,9 +87,9 @@ export function applyPendingSwitch(): void {
 export class AccountSwitcher {
   /** Whether this loader can switch accounts at all (needs cookie access). */
   readonly supported: boolean
-  private readonly cookies: TautBridge['cookies']
+  private readonly cookies: NormalizedBridge['cookies']
 
-  constructor(private bridge: TautBridge) {
+  constructor(private bridge: NormalizedBridge) {
     this.cookies = bridge.cookies ?? null
     this.supported = this.cookies != null
   }

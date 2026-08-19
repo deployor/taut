@@ -150,14 +150,8 @@ if (isClientPage) {
         }
         serialInit.headers = headers
       }
-      return call('fetch', [url, serialInit]).then(
-        (r) =>
-          new Response(r.body, {
-            status: r.status,
-            statusText: r.statusText,
-            headers: r.headers,
-          })
-      )
+      // contextBridge structure-clones this
+      return call('fetch', [url, serialInit])
     },
 
     warnOutdated: () => ipcRenderer.invoke('taut:warn-outdated'),

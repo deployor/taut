@@ -67,6 +67,15 @@ export type TautCookie = {
  * Abstracts the communication layer between the app and backend.
  * Implemented by each loader: Chrome extension, Firefox extension, Electron preload.
  */
+
+// structured-cloneable
+export type SerialResponse = {
+  status: number
+  statusText?: string
+  headers?: Record<string, string>
+  body?: string | null
+}
+
 export type TautBridge = {
   /** Which loader is providing this bridge */
   readonly loader:
@@ -140,7 +149,10 @@ export type TautBridge = {
   /**
    * CORS-bypassing fetch.
    */
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
+  fetch(
+    input: RequestInfo | URL,
+    init?: RequestInit
+  ): Promise<Response | SerialResponse>
 
   /**
    * Cookie read/write outside the page sandbox, or `null` if the loader can't

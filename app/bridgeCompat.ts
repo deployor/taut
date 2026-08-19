@@ -1,14 +1,43 @@
-import type { BlobStore, TautBridge } from '../shared/TautBridge'
+import type {
+  BlobStore,
+  SerialResponse,
+  TautBridge,
+} from '../shared/TautBridge'
 
 /**
  * after `normalizeBridge()`, all methods there + boolean for supported features
  */
-export type NormalizedBridge = TautBridge & {
+export type NormalizedBridge = Omit<TautBridge, 'fetch'> & {
   /** bridgeVersion >= 3 */
   readonly supportsUserPlugins: boolean
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
 }
 
 const V2_BLOB_PREFIX = 'taut:bridge-v2:blob:'
+
+/** These statuses must have a null body or the Response constructor throws */
+const NULL_BODY_STATUS = new Set([101, 204, 205, 304])
+
+/**
+ * Electron's contextBridge structure-clones, so response must be rebuilt
+ */
+function toResponse(result: Response | SerialResponse): Response {
+  if (result instanceof Response) return result
+  const status =
+    typeof result?.status === 'number' &&
+    result.status >= 200 &&
+    result.status <= 599
+      ? result.status
+      : 200
+  return new Response(
+    NULL_BODY_STATUS.has(status) ? null : (result?.body ?? ''),
+    {
+      status,
+      statusText: result?.statusText ?? '',
+      headers: result?.headers ?? {},
+    }
+  )
+}
 
 function localStorageBlobStore(namespace: string): BlobStore {
   const prefix = `${V2_BLOB_PREFIX}${encodeURIComponent(namespace)}:`
@@ -95,7 +124,8 @@ export function normalizeBridge(raw: TautBridge): NormalizedBridge {
     readUserCss: call(raw.readUserCss),
     writeUserCss: call(raw.writeUserCss),
     onUserCssChange: call(raw.onUserCssChange),
-    fetch: call(raw.fetch),
+    fetch: async (input: RequestInfo | URL, init?: RequestInit) =>
+      toResponse(await raw.fetch(input, init)),
     cookies,
     readSecret: call(raw.readSecret),
     writeSecret: call(raw.writeSecret),
