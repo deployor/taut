@@ -56,7 +56,7 @@ export default class ShowRealUser extends TautPlugin {
   `
 
   /** key: "channel:ts" -> sender, or null once we know the bot named none */
-  private senders = new this.api.Cache<string | null>('relay_senders', {
+  private senders = new this.api.Cache<string | null>('relay_senders_v2', {
     ttl: 30 * 24 * 60 * 60 * 1000,
     maxSize: 5000,
   })
@@ -96,14 +96,18 @@ export default class ShowRealUser extends TautPlugin {
     const [channel, ts] = key.split(':')
     try {
       await this.senders.fetch(key, async () => {
-        const res = await this.api.userAPI('message.list', {
-          message_ids: JSON.stringify([{ channel, timestamps: [ts] }]),
-          org_wide_aware: 'true',
-          cached_latest_updates: '{}',
-        })
-        const found = res?.messages_data?.[channel]?.messages?.[0] as
-          | SlackMessage
-          | undefined
+        const res = await this.api.userAPI<{ messages?: SlackMessage[] }>(
+          'conversations.replies',
+          {
+            channel,
+            ts,
+            limit: '1',
+            inclusive: 'true',
+            include_all_metadata: 'true',
+          },
+          { rateLimitRetries: 3, signal: this.api.signal }
+        )
+        const found = res.messages?.find((msg) => msg.ts === ts)
         const relay = this.relay(found)
         return (relay && this.validId(relay(found as SlackMessage))) ?? null
       })
