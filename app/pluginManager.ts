@@ -22,13 +22,16 @@ import type { NormalizedBridge } from './bridgeCompat'
 import { initJsonc } from './cdn'
 import type { ConfigStore } from './configStore'
 import { deepEqual } from './helpers'
+import { blocksPromise } from './slack/blocks'
 import { channelsPromise } from './slack/channels'
 import { filesPromise } from './slack/files'
 import { membersPromise } from './slack/members'
 import {
   findComponentPromise,
+  findRenderedComponent,
   patchComponentPromise,
   reactPromise,
+  waitForRenderedComponent,
 } from './slack/react'
 import { reduxPromise } from './slack/redux'
 import { rtmPromise } from './slack/rtm'
@@ -72,10 +75,13 @@ async function makeBaseTautAPI(bridge: TautBridge) {
     findExport: await findExportPromise,
     findByProps: await findByPropsPromise,
     findComponent: await findComponentPromise,
+    findRenderedComponent,
+    waitForRenderedComponent,
     patchComponent,
     redux: await reduxPromise,
     members: await membersPromise,
     channels: await channelsPromise,
+    blocks: await blocksPromise,
     files: await filesPromise,
     rtm: await rtmPromise,
     fetch: bridge.fetch.bind(bridge),

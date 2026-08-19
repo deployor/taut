@@ -19,6 +19,7 @@ export interface OpenModalOptions {
   cancelText?: string
   danger?: boolean
   showCancelButton?: boolean
+  showSubmitButton?: boolean
   onSubmit?: () => void
   onCancel?: () => void
   onClose?: () => void
@@ -130,6 +131,7 @@ export const modalAPIPromise = (async () => {
         cancelButtonText={options.cancelText ?? 'Cancel'}
         submitButtonType={options.danger ? 'danger' : 'primary'}
         showCancelButton={options.showCancelButton ?? true}
+        showSubmitButton={options.showSubmitButton ?? true}
         onSubmit={() => {
           options.onSubmit?.()
           closeRef.current()

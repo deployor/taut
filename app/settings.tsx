@@ -203,7 +203,12 @@ function ConfigEditor({ configStore }: { configStore: ConfigStore }) {
         <elements.Button onClick={handleSave} disabled={!dirty || saving}>
           {saving ? 'Saving...' : 'Save config.jsonc'}
         </elements.Button>
-        <div style={{ fontSize: '12px', color: 'var(--sk_foreground_low)' }}>
+        <div
+          style={{
+            fontSize: '12px',
+            color: 'rgba(var(--sk_foreground_max_solid, 171, 171, 173), 1)',
+          }}
+        >
           {dirty ? 'Unsaved changes' : 'Saved'}
         </div>
       </div>
@@ -267,7 +272,12 @@ function UserCssEditor({ configStore }: { configStore: ConfigStore }) {
         <elements.Button onClick={handleSave} disabled={!dirty || saving}>
           {saving ? 'Saving...' : 'Save user.css'}
         </elements.Button>
-        <div style={{ fontSize: '12px', color: 'var(--sk_foreground_low)' }}>
+        <div
+          style={{
+            fontSize: '12px',
+            color: 'rgba(var(--sk_foreground_max_solid, 171, 171, 173), 1)',
+          }}
+        >
           {dirty ? 'Unsaved changes' : 'Saved'}
         </div>
       </div>
@@ -359,7 +369,7 @@ function MonacoEditor({
           style={{
             padding: '8px',
             fontSize: '12px',
-            color: 'var(--sk_foreground_low)',
+            color: 'rgba(var(--sk_foreground_max_solid, 171, 171, 173), 1)',
           }}
         >
           Monaco loading...
@@ -536,7 +546,8 @@ function PluginRow({
               <span
                 style={{
                   fontWeight: 'normal',
-                  color: 'var(--sk_foreground_low)',
+                  color:
+                    'rgba(var(--sk_foreground_max_solid, 171, 171, 173), 1)',
                 }}
               >
                 ({info.id})

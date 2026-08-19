@@ -135,17 +135,44 @@ export const findComponentPromise = (async () => {
 // slack never exports plenty of components, and connect keeps no
 // WrappedComponent link back, so note what resolveType sees instead
 const renderedComponents = new Map<string, ComponentType>()
+const renderedWaiters = new Map<string, Set<(c: ComponentType) => void>>()
 
 function rememberRendered(type: any) {
   const name = getComponentName(type)
-  if (name && !renderedComponents.has(name)) renderedComponents.set(name, type)
+  if (!name || renderedComponents.has(name)) return
+  renderedComponents.set(name, type)
+
+  const waiters = renderedWaiters.get(name)
+  if (!waiters) return
+  renderedWaiters.delete(name)
+  for (const resolve of waiters) resolve(type)
 }
 
-/** console only, unlike findComponent, knows only what's been on screen */
-function findRenderedComponent(name: string): ComponentType | undefined {
+/** Knows only what has been on screen, unlike findComponent which reads exports (avoid if you can) */
+export function findRenderedComponent(name: string): ComponentType | undefined {
   return renderedComponents.get(name)
 }
+
+/**
+ * Use for components Slack never exports, which only become reachable after
+ * something mounts them; resolves immediately if one already has. Avoid if you can
+ */
+export function waitForRenderedComponent(name: string): Promise<ComponentType> {
+  const seen = renderedComponents.get(name)
+  if (seen) return Promise.resolve(seen)
+
+  return new Promise((resolve) => {
+    let waiters = renderedWaiters.get(name)
+    if (!waiters) {
+      waiters = new Set()
+      renderedWaiters.set(name, waiters)
+    }
+    waiters.add(resolve)
+  })
+}
+
 global.findRenderedComponent = findRenderedComponent
+global.waitForRenderedComponent = waitForRenderedComponent
 global.renderedComponents = renderedComponents
 
 // Fiber Utilities (promise-wrapped)

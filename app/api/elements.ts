@@ -88,6 +88,85 @@ export type MenuTemplateItem = {
   danger?: boolean
 }
 
+/**
+ * Slack's two-field date range control, with a calendar popover.
+ * Dates are strings in `dateFormat`, which defaults to YYYY-MM-DD.
+ */
+export type DateRangePickerProps = {
+  id?: string
+  className?: string
+  /** initial value only: the picker is uncontrolled after mount */
+  selectedStartDate?: string | null
+  selectedEndDate?: string | null
+  /** the picker manages its own state; these only report the new value */
+  onStartDateChange?: (change: { selectedStartDate: string }) => void
+  onEndDateChange?: (change: { selectedEndDate: string }) => void
+  /** how dates are parsed and reported back, e.g. "YYYY-MM-DD" */
+  dateFormat?: string
+  /** how dates are shown, when it should differ from `dateFormat` */
+  displayFormat?: string | null
+  disabledDates?: string[]
+  disableDatesBefore?: string
+  disableDatesAfter?: string
+  /** cap the span the user can pick, in days */
+  maxRange?: number
+  size?: 'small' | 'medium' | 'large'
+  width?: number | null
+  placeholderText?: string | null
+  startInputPlaceholder?: string
+  endInputPlaceholder?: string
+  startInputAriaLabel?: string
+  endInputAriaLabel?: string
+  showClearSelection?: boolean
+  endDateRequired?: boolean
+  singleMonthMode?: boolean
+  showPreviousMonth?: boolean
+  closeAfterSelection?: boolean
+  renderCalendarInPopover?: boolean
+  onCalendarClose?: () => void
+  dataQa?: string | null
+  'aria-label'?: string
+}
+
+/** Slack's section wrapper: a FieldSet holding a Legend and its controls */
+export type FieldSetProps = {
+  id?: string
+  'data-qa'?: string
+  'data-qa-section'?: string
+  children?: React.ReactNode
+}
+
+export type LegendProps = {
+  className?: string
+  children?: React.ReactNode
+}
+
+/** Secondary line under a control */
+export type HintProps = {
+  children?: React.ReactNode
+  className?: string
+}
+
+/** One option in a BasicSelect */
+export type SelectOption = { label: string; value: string }
+
+export type BasicSelectProps = {
+  selectId: string
+  options: SelectOption[]
+  selectedOption?: SelectOption
+  onSelectionChange: (option: SelectOption) => void
+  width?: number
+  ariaLabel?: string
+  selectDataQa?: string
+  isDisabled?: boolean
+}
+
+export type BlocksProps = {
+  msg: { blocks?: unknown[]; [key: string]: unknown }
+  blocksContainerContext?: 'message' | string
+  streaming?: boolean
+}
+
 export type MenuFromTemplateProps = { template?: MenuTemplateItem[] }
 
 export type MenuTriggerProps = {
@@ -153,6 +232,12 @@ export const elementsAPIPromise = (async () => {
     InlineAlert: resolve<InlineAlertProps>('InlineAlert'),
     Label: resolve<LabelProps>('Label'),
     FormTextInput: resolve<FormTextInputProps>('FormTextInput'),
+    DateRangePicker: resolve<DateRangePickerProps>('DateRangePicker'),
+    FieldSet: resolve<FieldSetProps>('FieldSet'),
+    Legend: resolve<LegendProps>('Legend'),
+    Hint: resolve<HintProps>('Hint'),
+    BasicSelect: resolve<BasicSelectProps>('BasicSelect'),
+    Blocks: resolve<BlocksProps>('Blocks'),
     MenuTrigger: resolve<MenuTriggerProps>('MenuTrigger'),
     MenuFromTemplate: resolve<MenuFromTemplateProps>('MenuFromTemplate'),
   }
