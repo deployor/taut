@@ -10,6 +10,15 @@ function main() {
   const global = globalThis as any
   const bridge = global.TautBridge
 
+  // Precondition 0: only the Slack client, never sign-in/marketing pages
+  const isSlackClient =
+    location.hostname === 'app.slack.com' &&
+    /^\/client(\/|$)/.test(location.pathname)
+  if (!isSlackClient) {
+    console.log('[Taut] Not the Slack client, doing nothing:', location.href)
+    return
+  }
+
   // Precondition 1: TautBridge must be present with loader metadata
   if (!bridge?.loader || typeof bridge?.bridgeVersion !== 'number') {
     alert(

@@ -7,7 +7,7 @@
 
   /** @type {browser.webRequest.RequestFilter} */
   const SLACK_FILTER = {
-    urls: ['https://app.slack.com/*'],
+    urls: ['https://app.slack.com/client/*'],
     types: ['main_frame'],
   }
 
