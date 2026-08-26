@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Taut",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Client mod for Slack",
   "author": "Jeremy Woolley",
   "homepage_url": "https://taut.jer.app",
@@ -21,7 +21,7 @@
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
-      "matches": ["https://app.slack.com/client/*"],
+      "matches": ["https://app.slack.com/*"],
       "js": ["content.js"],
       "run_at": "document_start",
       "world": "ISOLATED"
@@ -30,7 +30,7 @@
   "web_accessible_resources": [
     {
       "resources": ["bridge-setup.js"],
-      "matches": ["https://app.slack.com/client/*"]
+      "matches": ["https://app.slack.com/*"]
     }
   ]
 }
