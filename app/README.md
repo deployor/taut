@@ -29,3 +29,5 @@ frontend), TypeScript ESM with JSX
   - `webpack.ts`: Webpack utilities for finding Slack's internal modules.
   - `react.tsx`: React utilities, including `patchComponent` for replacing Slack
     components at runtime.
+  - `childWindows.ts`: Tracks the child windows Slack renders into (huddles,
+    canvas pop-outs) so Taut's styles can be mirrored into them.

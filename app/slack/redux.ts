@@ -2,7 +2,7 @@
 // Access to Slack's react-redux store, plus read-time state patching
 
 import { getFiberFromNode, reactPromise } from './react'
-import { patchModuleExports } from './webpack'
+import { patchExportFunction, patchModuleExports } from './webpack'
 
 export type SlackStore = {
   getState(): any
@@ -43,34 +43,12 @@ function wrapGetState(store: SlackStore): void {
 }
 
 // Hook redux's createStore to wrap the getState of every store it creates
-patchModuleExports((exports) => {
-  if (!exports || typeof exports !== 'object') return
-  for (const key of Object.keys(exports)) {
-    let value: any
-    try {
-      value = exports[key]
-    } catch {
-      continue
-    }
-    if (typeof value !== 'function' || value.name !== 'createStore') continue
-
-    const originalCreateStore = value
-    const hookedCreateStore = (...args: any[]) => {
-      const store = originalCreateStore(...args)
-      try {
-        wrapGetState(store)
-      } catch {}
-      return store
-    }
-    const descriptors = Object.getOwnPropertyDescriptors(exports)
-    descriptors[key] = {
-      value: hookedCreateStore,
-      enumerable: true,
-      configurable: true,
-      writable: true,
-    }
-    return Object.create(Object.getPrototypeOf(exports), descriptors)
-  }
+patchExportFunction('createStore', (originalCreateStore) => (...args) => {
+  const store = originalCreateStore(...args)
+  try {
+    wrapGetState(store)
+  } catch {}
+  return store
 })
 
 let cachedStore: SlackStore | null = null

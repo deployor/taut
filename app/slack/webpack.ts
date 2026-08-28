@@ -150,6 +150,38 @@ export function patchModuleExports(patcher: ModuleExportsPatcher): void {
   moduleExportsPatchers.add(patcher)
 }
 
+/**
+ * Wrap a function export by name
+ */
+export function patchExportFunction(
+  name: string,
+  wrap: (original: (...args: any[]) => any) => (...args: any[]) => any
+): void {
+  patchModuleExports((exports) => {
+    if (!exports || typeof exports !== 'object') return
+    for (const key of Object.keys(exports)) {
+      let value: any
+      try {
+        value = exports[key]
+      } catch {
+        continue
+      }
+      if (typeof value !== 'function' || value.name !== name) continue
+
+      // Webpack defines namespace exports as non-configurable getters, so the
+      // whole exports object has to be rebuilt
+      const descriptors = Object.getOwnPropertyDescriptors(exports)
+      descriptors[key] = {
+        value: wrap(value),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      }
+      return Object.create(Object.getPrototypeOf(exports), descriptors)
+    }
+  })
+}
+
 // Factory Wrapping
 
 function wrapModuleFactory(

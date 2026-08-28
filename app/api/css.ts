@@ -2,33 +2,66 @@
 // Injects stylesheets, optionally keyed so later calls can replace them
 
 import { updateMonacoTheme } from '../cdn'
+import { childWindowDocuments, onChildWindow } from '../slack/childWindows'
 
-const keyed = new Map<string, HTMLStyleElement>()
+// One entry per injected stylesheet, with the element it rendered into each
+// document that gets a copy. Weak so closed child windows can be collected
+type Sheet = {
+  css: string
+  key?: string
+  elements: WeakMap<Document, HTMLStyleElement>
+}
 
-function drop(element: HTMLStyleElement, key?: string) {
-  element.remove()
-  if (key !== undefined) keyed.delete(key)
+const sheets = new Set<Sheet>()
+const keyed = new Map<string, Sheet>()
+
+function liveDocuments(): Document[] {
+  return [document, ...childWindowDocuments()]
+}
+
+function render(sheet: Sheet, doc: Document) {
+  let element = sheet.elements.get(doc)
+  if (!element) {
+    element = doc.createElement('style')
+    element.dataset.tautStyle = sheet.key ?? ''
+    doc.head.appendChild(element)
+    sheet.elements.set(doc, element)
+  }
+  element.textContent = sheet.css
+}
+
+function drop(sheet: Sheet) {
+  for (const doc of liveDocuments()) {
+    sheet.elements.get(doc)?.remove()
+    sheet.elements.delete(doc)
+  }
+  sheets.delete(sheet)
+  if (sheet.key !== undefined) keyed.delete(sheet.key)
   updateMonacoTheme()
 }
 
 /** Add a stylesheet, returning a disposer. A `key` replaces, a null `css` drops */
 export function setStyle(css: string | null, key?: string): () => void {
-  let element = key === undefined ? undefined : keyed.get(key)
+  let sheet = key === undefined ? undefined : keyed.get(key)
 
   if (css === null) {
-    if (element) drop(element, key)
+    if (sheet) drop(sheet)
     return () => {}
   }
 
-  if (!element) {
-    element = document.createElement('style')
-    element.dataset.tautStyle = key ?? ''
-    document.head.appendChild(element)
-    if (key !== undefined) keyed.set(key, element)
+  if (!sheet) {
+    sheet = { css, key, elements: new WeakMap() }
+    sheets.add(sheet)
+    if (key !== undefined) keyed.set(key, sheet)
   }
-  element.textContent = css
+  sheet.css = css
+  for (const doc of liveDocuments()) render(sheet, doc)
   updateMonacoTheme()
 
-  const added = element
-  return () => drop(added, key)
+  const added = sheet
+  return () => drop(added)
 }
+
+onChildWindow((doc) => {
+  for (const sheet of sheets) render(sheet, doc)
+})
