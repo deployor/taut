@@ -48,6 +48,9 @@ export default class NoTrack extends TautPlugin {
   private matchers: RegExp[] = []
   private originalFetch: typeof window.fetch | null = null
   private originalXHROpen: typeof XMLHttpRequest.prototype.open | null = null
+  private originalSendBeacon: typeof navigator.sendBeacon | null = null
+  private sendBeaconWasOwn = false
+  private restorePipelines: (() => void)[] = []
 
   private isBlocked(url: string): boolean {
     return this.matchers.some((re) => re.test(url))
@@ -57,6 +60,43 @@ export default class NoTrack extends TautPlugin {
     if (typeof input === 'string') return input
     if (input instanceof URL) return input.href
     return (input as Request).url
+  }
+
+  private exportByName<T = any>(name: string): T | null {
+    return this.api.findExport(
+      (exp: any) => typeof exp === 'function' && exp.name === name
+    )
+  }
+
+  private stopTracing(): void {
+    const getGenericTracer = this.exportByName<() => any>('getGenericTracer')
+    if (!getGenericTracer) return
+    const proto = Object.getPrototypeOf(getGenericTracer())
+    const original = proto.shouldSample
+    if (typeof original !== 'function') return
+    proto.shouldSample = () => false
+    this.restorePipelines.push(() => {
+      proto.shouldSample = original
+    })
+  }
+
+  private stopMetrics(): void {
+    const getGenericTelemeter = this.exportByName<() => any>(
+      'getGenericTelemeter'
+    )
+    const getNoopTelemeter = this.exportByName<() => any>('getNoopTelemeter')
+    if (!getGenericTelemeter || !getNoopTelemeter) return
+
+    const real = Object.getPrototypeOf(getGenericTelemeter())
+    const noop = Object.getPrototypeOf(getNoopTelemeter())
+    for (const name of Object.getOwnPropertyNames(noop)) {
+      if (name === 'constructor' || typeof noop[name] !== 'function') continue
+      const original = real[name]
+      real[name] = noop[name]
+      this.restorePipelines.push(() => {
+        real[name] = original
+      })
+    }
   }
 
   start(): void {
@@ -89,6 +129,23 @@ export default class NoTrack extends TautPlugin {
       return Reflect.apply(originalOpen, this, [method, url, ...rest])
     }
 
+    if (typeof navigator.sendBeacon === 'function') {
+      this.originalSendBeacon = navigator.sendBeacon
+      this.sendBeaconWasOwn = Object.hasOwn(navigator, 'sendBeacon')
+      const originalSendBeacon = navigator.sendBeacon.bind(navigator)
+      navigator.sendBeacon = (url: string | URL, data?: BodyInit | null) => {
+        if (this.isBlocked(NoTrack.urlString(url))) return true
+        return originalSendBeacon(url, data)
+      }
+    }
+
+    try {
+      this.stopTracing()
+      this.stopMetrics()
+    } catch (error) {
+      this.log('Could not stop a metrics pipeline', error)
+    }
+
     this.log('Started, blocking', this.matchers.length, 'patterns')
   }
 
@@ -101,6 +158,16 @@ export default class NoTrack extends TautPlugin {
       XMLHttpRequest.prototype.open = this.originalXHROpen
       this.originalXHROpen = null
     }
+    if (this.originalSendBeacon) {
+      if (this.sendBeaconWasOwn) {
+        navigator.sendBeacon = this.originalSendBeacon
+      } else {
+        delete (navigator as Partial<Navigator>).sendBeacon
+      }
+      this.originalSendBeacon = null
+    }
+    for (const restore of this.restorePipelines.reverse()) restore()
+    this.restorePipelines = []
     this.matchers = []
     this.log('Stopped')
   }
