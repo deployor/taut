@@ -147,6 +147,20 @@ export default class ShowRealUser extends TautPlugin {
     return out
   }
 
+  private withBot(msg: RelayedMessage | undefined) {
+    const bot = msg?.taut_bot_id
+    if (!msg || msg.bot_id || typeof bot !== 'string') return msg
+    const stored =
+      typeof msg.channel === 'string' && msg.ts
+        ? this.api.messages.getRawMessage(msg.channel, msg.ts)
+        : undefined
+    return {
+      ...msg,
+      bot_id: bot,
+      ...(stored?.bot_profile && { bot_profile: stored.bot_profile }),
+    }
+  }
+
   /** the sender we know for a relayed message, looking it up if we don't */
   private senderOf(channel: string, ts: string): string | undefined {
     const key = `${channel}:${ts}`
@@ -187,6 +201,14 @@ export default class ShowRealUser extends TautPlugin {
         }
       )
     }
+
+    // block kit stays the bot's, so its buttons keep working
+    this.api.patchComponent<{ msg?: RelayedMessage }>(
+      'Blocks',
+      (Original) => (props) => (
+        <Original {...props} msg={this.withBot(props.msg)} />
+      )
+    )
 
     // search keeps its own copies, which carry the bot's user id as the sender
     this.api.patchComponent<{ result?: SearchResult }>(
