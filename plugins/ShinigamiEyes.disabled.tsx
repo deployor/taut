@@ -110,7 +110,7 @@ export default class ShinigamiEyes extends TautPlugin {
         }, [userId, isBotMessage])
 
         const className =
-          trustLevel !== null ? `taut-trust-level-${trustLevel}` : ''
+          trustLevel !== null ? `taut-trust-level--${trustLevel}` : ''
 
         return (
           <OriginalBaseMessageSender
@@ -271,7 +271,7 @@ export default class ShinigamiEyes extends TautPlugin {
     const emojiStyles = [...TRUST_LEVEL_EMOJIS.entries()]
       .map(([level, emoji]) => {
         return `
-        .taut-trust-level-${level}::before {
+        .taut-trust-level--${level}::before {
           content: "${emoji} ";
         }
       `

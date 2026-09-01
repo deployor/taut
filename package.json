@@ -1,6 +1,6 @@
 {
   "name": "taut",
-  "version": "2.7.10",
+  "version": "2.8.0",
   "description": "Client mod for Slack",
   "license": "MIT",
   "author": {
@@ -34,7 +34,7 @@
   },
   "keywords": ["taut", "slack", "mod", "patcher"],
   "devDependencies": {
-    "@biomejs/biome": "2.5.4",
+    "@biomejs/biome": "^2.5.11",
     "@cloudflare/workers-types": "^4.20260609.1",
     "@monaco-editor/loader": "^1.7.0",
     "@types/bun": "^1.3.5",

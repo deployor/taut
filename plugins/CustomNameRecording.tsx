@@ -68,8 +68,8 @@ export default class CustomNameRecording extends TautPlugin {
     )
 
     this.api.setStyle(`
-      .taut-cnr-upload { margin-left: 8px; }
-      .taut-cnr-error { margin-top: 4px; }
+      .taut-name-recording__upload { margin-left: 8px; }
+      .taut-name-recording__error { margin-top: 4px; }
     `)
 
     this.log('Started')
@@ -90,7 +90,7 @@ export default class CustomNameRecording extends TautPlugin {
     return (
       <>
         <Button
-          className="taut-cnr-upload"
+          className="taut-name-recording__upload"
           type="outline"
           size="medium"
           onClick={onClick}
@@ -100,7 +100,7 @@ export default class CustomNameRecording extends TautPlugin {
           <span className="margin_left_25">{busy ?? 'Upload audio'}</span>
         </Button>
         {error ? (
-          <InlineAlert className="taut-cnr-error c-inline_alert--level_error">
+          <InlineAlert className="taut-name-recording__error c-inline_alert--level_error">
             {error}
           </InlineAlert>
         ) : null}

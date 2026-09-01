@@ -12,7 +12,7 @@ type MemberLike = {
   profile?: { display_name?: string; real_name?: string; image_48?: string }
 }
 
-const NICKNAME_ITEM_KEY = 'taut-set-nickname'
+const NICKNAME_ITEM_KEY = 'taut-nicknames__set'
 
 export default class Nicknames extends TautPlugin {
   static readonly id = 'Nicknames'
@@ -122,9 +122,9 @@ export default class Nicknames extends TautPlugin {
       const [value, setValue] = React.useState(valueRef.current)
       return (
         <>
-          <Label text="Nickname" htmlFor="taut-nickname-input" optional />
+          <Label text="Nickname" htmlFor="taut-nicknames__input" optional />
           <TextInput
-            id="taut-nickname-input"
+            id="taut-nicknames__input"
             value={value}
             onChange={(next) => {
               setValue(next)

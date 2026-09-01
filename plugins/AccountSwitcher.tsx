@@ -267,7 +267,7 @@ export default class AccountSwitcher extends TautPlugin {
     for (const account of accounts) {
       const isCurrent = account.userId === this.currentUserId
       template.push({
-        key: `taut-acct-${account.userId}`,
+        key: `taut-account-switcher__${account.userId}`,
         label: (
           <AccountRow
             userId={account.userId}
@@ -286,10 +286,13 @@ export default class AccountSwitcher extends TautPlugin {
     }
 
     if (template.length) {
-      template.push({ key: 'taut-acct-separator', type: 'separator' })
+      template.push({
+        key: 'taut-account-switcher__separator',
+        type: 'separator',
+      })
     }
     template.push({
-      key: 'taut-acct-add',
+      key: 'taut-account-switcher__add',
       label: 'Add another account',
       click: () => {
         this.api.accounts

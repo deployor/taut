@@ -72,7 +72,7 @@ export default class CopyReacted extends TautPlugin {
     const everyone = [...new Set(reactions.flatMap((r) => r.users ?? []))]
     const template: MenuTemplateItem[] = [
       {
-        key: 'taut-cr-everyone',
+        key: 'taut-copy-reacted__everyone',
         label: `Everyone (${everyone.length})`,
         click: () => void this.copyReactors(everyone),
       },
@@ -80,7 +80,7 @@ export default class CopyReacted extends TautPlugin {
     if (reactions.length > 1) {
       for (const reaction of reactions) {
         template.push({
-          key: `taut-cr-${reaction.name}`,
+          key: `taut-copy-reacted__${reaction.name}`,
           // mrkdwn renders the emoji as an image
           label: (
             <MrkdwnElement
@@ -96,7 +96,7 @@ export default class CopyReacted extends TautPlugin {
       <Menu template={template} position="bottom">
         <button
           type="button"
-          className="c-button-unstyled c-reaction_add taut-cr"
+          className="c-button-unstyled c-reaction_add taut-copy-reacted"
           data-qa="taut_copy_reacted"
           aria-label="Copy who reacted"
         >
@@ -110,15 +110,15 @@ export default class CopyReacted extends TautPlugin {
     this.api.setStyle(
       `
         /* mirrors how .c-reaction_add__fg greys the add-reaction icon */
-        .taut-cr {
+        .taut-copy-reacted {
           color: var(--dt_color-content-pry);
         }
 
-        .sk-client-theme--dark .taut-cr {
+        .sk-client-theme--dark .taut-copy-reacted {
           color: var(--dt_color-content-ter);
         }
 
-        .sk-client-theme--dark .taut-cr:is(:hover, :focus) {
+        .sk-client-theme--dark .taut-copy-reacted:is(:hover, :focus) {
           color: var(--dt_color-content-pry);
         }
       `

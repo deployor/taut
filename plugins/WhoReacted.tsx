@@ -38,7 +38,7 @@ export default class WhoReacted extends TautPlugin {
     if (!url || broken) return null
     return (
       <img
-        className="taut-wr__avatar"
+        className="taut-reactors__avatar"
         src={url}
         alt=""
         onError={() => setBroken(true)}
@@ -52,11 +52,11 @@ export default class WhoReacted extends TautPlugin {
     const shown = users.slice(0, this.maxAvatars)
     const rest = users.length - shown.length
     return (
-      <span className="taut-wr">
+      <span className="taut-reactors">
         {shown.map((userId) => (
           <this.Avatar key={userId} userId={userId} />
         ))}
-        {rest > 0 && <span className="taut-wr__rest">+{rest}</span>}
+        {rest > 0 && <span className="taut-reactors__overflow">+{rest}</span>}
       </span>
     )
   }
@@ -64,13 +64,13 @@ export default class WhoReacted extends TautPlugin {
   start() {
     this.api.setStyle(
       `
-        .taut-wr {
+        .taut-reactors {
           display: inline-flex;
           align-items: center;
           margin-left: 4px;
         }
 
-        .taut-wr__avatar {
+        .taut-reactors__avatar {
           width: 16px;
           height: 16px;
           margin-left: -5px;
@@ -81,11 +81,11 @@ export default class WhoReacted extends TautPlugin {
           background-color: var(--dt_color-surf-pry);
         }
 
-        .taut-wr__avatar:first-child {
+        .taut-reactors__avatar:first-child {
           margin-left: 0;
         }
 
-        .taut-wr__rest {
+        .taut-reactors__overflow {
           margin-left: 3px;
           font-size: 11px;
           font-weight: 700;

@@ -26,6 +26,7 @@ import { blocksPromise } from './slack/blocks'
 import { channelsPromise } from './slack/channels'
 import { filesPromise } from './slack/files'
 import { membersPromise } from './slack/members'
+import { messagesPromise } from './slack/messages'
 import {
   findComponentPromise,
   findRenderedComponent,
@@ -80,6 +81,7 @@ async function makeBaseTautAPI(bridge: NormalizedBridge) {
     patchComponent,
     redux: await reduxPromise,
     members: await membersPromise,
+    messages: await messagesPromise,
     channels: await channelsPromise,
     blocks: await blocksPromise,
     files: await filesPromise,

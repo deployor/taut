@@ -20,6 +20,12 @@ export type { ModalHandle, OpenModalOptions } from '../app/api/modal'
 export type { UserAPIOptions } from '../app/api/userAPI'
 export type { TautAPI } from '../app/pluginManager'
 export type { Block, FromDeltaOptions } from '../app/slack/blocks'
+export type {
+  SlackActivityItem,
+  SlackAttachment,
+  SlackBot,
+  SlackMessage,
+} from '../app/slack/messages'
 export type { ComponentType, componentReplacer } from '../app/slack/react'
 export type { RtmEvent } from '../app/slack/rtm'
 

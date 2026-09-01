@@ -39,6 +39,7 @@ function wrapGetState(store: SlackStore): void {
     return out
   }
   wrapped.__tautWrapped = true
+  wrapped.__tautRawGetState = realGetState
   store.getState = wrapped
 }
 
@@ -71,6 +72,14 @@ export function getReduxStore(): SlackStore | null {
     }
   }
   return null
+}
+
+/** Slack's state as it is stored, with Taut's read-time transforms left off */
+export function getRawState(): any {
+  const getState = getReduxStore()?.getState as
+    | ((() => any) & { __tautRawGetState?: () => any })
+    | undefined
+  return (getState?.__tautRawGetState ?? getState)?.()
 }
 
 const patchListeners = new Set<() => void>()
@@ -373,6 +382,7 @@ export const reduxPromise = (async () => {
 
   return {
     getStore: getReduxStore,
+    getRawState,
     useReduxState,
     usePatchVersion,
     patchState,

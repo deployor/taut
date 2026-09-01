@@ -60,9 +60,9 @@ export default class IdvStatus extends TautPlugin {
 
       const className =
         idvStatus === 'unverified'
-          ? 'taut-idv-not-eligible'
+          ? 'taut-idv-status--not-eligible'
           : idvStatus === 'over_18'
-            ? 'taut-idv-over-18'
+            ? 'taut-idv-status--over-18'
             : ''
 
       return (
@@ -77,12 +77,12 @@ export default class IdvStatus extends TautPlugin {
 
     this.api.setStyle(
       `
-        .taut-idv-not-eligible, .taut-idv-not-eligible .c-message__sender_button {
+        .taut-idv-status--not-eligible, .taut-idv-status--not-eligible .c-message__sender_button {
           text-decoration: underline wavy #e01e5a !important;
           text-decoration-thickness: 1px !important;
         }
 
-        .taut-idv-over-18, .taut-idv-over-18 .c-message__sender_button {
+        .taut-idv-status--over-18, .taut-idv-status--over-18 .c-message__sender_button {
           text-decoration: underline wavy #d97706 !important;
           text-decoration-thickness: 1px !important;
         }

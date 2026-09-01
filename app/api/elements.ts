@@ -167,6 +167,43 @@ export type BlocksProps = {
   streaming?: boolean
 }
 
+/** Slack's avatar, for either a member (`userId`) or a bot (`botId`) */
+export type AvatarProps = {
+  userId?: string
+  botId?: string
+  /** the bot as the message recorded it, used until the store has its own copy */
+  botProfile?: object
+  /** an image set to draw instead of the member's or bot's own */
+  icons?: object
+  /** side length in pixels; also picks which stored image size is used */
+  size?: number
+  className?: string
+  /** whether it links to the profile and reacts to a click */
+  isInteractive?: boolean
+  /** open the profile card on hover */
+  showCard?: boolean
+  showTooltip?: boolean
+  messageTs?: string
+  ariaHidden?: string
+  tabIndex?: number
+  'data-qa'?: string
+}
+
+/** Wraps a trigger so hovering it opens Slack's profile card */
+export type ProfileHoverTriggerProps = {
+  /** the member whose profile to show */
+  memberId?: string
+  /** the bot (`B...`) whose app profile to show */
+  serviceId?: string
+  /** the bot as the message recorded it, used until the store has its own copy */
+  botProfile?: object
+  messageTs?: string
+  position?: string
+  /** leave off the wrapper's own class */
+  noStyling?: boolean
+  children?: React.ReactNode
+}
+
 export type MenuFromTemplateProps = { template?: MenuTemplateItem[] }
 
 export type MenuTriggerProps = {
@@ -224,6 +261,10 @@ export const elementsAPIPromise = (async () => {
 
   return {
     SvgIcon: resolve<SvgIconProps>('SvgIcon'),
+    Avatar: resolve<AvatarProps>('ConnectedBaseAvatar'),
+    ProfileHoverTrigger: resolve<ProfileHoverTriggerProps>(
+      'ProfileHoverTrigger'
+    ),
     MrkdwnElement: resolve<MrkdwnElementProps>('MrkdwnElement'),
     Button: resolve<ButtonProps>('Button'),
     Tooltip: resolve<TooltipProps>('Tooltip'),

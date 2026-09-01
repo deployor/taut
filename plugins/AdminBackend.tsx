@@ -58,14 +58,16 @@ export default class AdminBackend extends TautPlugin {
         const template = props.template
         if (!memberId || !Array.isArray(template))
           return <Original {...props} />
-        if (template.some((item) => item?.key?.startsWith('taut-admin-')))
+        if (
+          template.some((item) => item?.key?.startsWith('taut-admin-backend__'))
+        )
           return <Original {...props} />
 
         const next = [
           ...template,
-          { key: 'taut-admin-separator', type: 'separator' as const },
+          { key: 'taut-admin-backend__separator', type: 'separator' as const },
           ...TOOLS.map((tool) => ({
-            key: `taut-admin-${tool.id}`,
+            key: `taut-admin-backend__${tool.id}`,
             label: tool.label,
             click: () =>
               window.open(tool.url(memberId), '_blank', 'noopener,noreferrer'),
