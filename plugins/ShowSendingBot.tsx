@@ -42,7 +42,7 @@ export default class ShowSendingBot extends TautPlugin {
   static readonly defaultConfig = `
     // Shows the bot used to send a user message
     "ShowSendingBot": {
-      "enabled": false
+      "enabled": true
     }
   `
 
