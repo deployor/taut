@@ -13,13 +13,6 @@ type ActivityAvatarProps = {
   size?: 'small' | 'large'
   children?: React.ReactNode
 }
-/** the avatar on a forwarded message card */
-type AuthorAvatarProps = {
-  memberId?: string
-  icon?: string
-  iconSize?: number
-  isChannelEmailMessage?: boolean
-}
 
 /** the class each surface puts on the avatar it draws for a message's sender */
 const SENDER_AVATARS = [
@@ -165,7 +158,6 @@ export default class ShowSendingBot extends TautPlugin {
         index: props.attachmentIndex,
         authorId: props.authorId,
         authorLink: props.authorLink,
-        authorIcon: props.authorIcon,
       })
     )
 
@@ -179,22 +171,6 @@ export default class ShowSendingBot extends TautPlugin {
             : undefined
         return (
           <this.Badged msg={drawn} size={props.size}>
-            <Original {...props} />
-          </this.Badged>
-        )
-      }
-    )
-
-    this.api.patchComponent<AuthorAvatarProps>(
-      'AttachmentAuthorAvatar',
-      (Original) => (props) => {
-        const msg = React.useContext(this.SenderContext)
-        const drawsAvatar = props.memberId && !props.isChannelEmailMessage
-        return (
-          <this.Badged
-            msg={props.icon && !drawsAvatar ? msg : undefined}
-            size={props.iconSize}
-          >
             <Original {...props} />
           </this.Badged>
         )

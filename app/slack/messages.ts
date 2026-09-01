@@ -109,22 +109,17 @@ export function forwardedMessage(forward: {
   index?: number
   authorId?: string
   authorLink?: string
-  authorIcon?: string
 }): SlackMessage {
   const { channel, messageTs, index = 0 } = forward
   const stored =
     channel && messageTs
       ? getRawMessage(channel, messageTs)?.attachments?.[index]
       : undefined
-  const link = stored?.author_link ?? forward.authorLink
-  // the (potentially custom) display name it posted under is author_subname
-  const overrode = stored?.author_subname
   return {
     user: forward.authorId,
-    bot_id: SERVICE_RE.exec(link ?? '')?.[1],
-    icons: overrode
-      ? { image_48: stored?.author_icon ?? forward.authorIcon }
-      : undefined,
+    bot_id: SERVICE_RE.exec(
+      stored?.author_link ?? forward.authorLink ?? ''
+    )?.[1],
   }
 }
 
@@ -136,25 +131,26 @@ type SenderDetails = (
 export const messagesPromise = (async () => {
   const { useReduxState } = await reduxPromise
   const findExport = await findExportPromise
-  const readSender: SenderDetails =
-    findExport(
+  // the activity view is a lazy chunk
+  let cached: SenderDetails | undefined
+  const readSender = (): SenderDetails | undefined =>
+    (cached ??= findExport(
       (e: any) =>
-        typeof e === 'function' &&
-        e.name === 'getSenderDetailsFromActivityItem'
-    ) ?? (() => undefined)
+        typeof e === 'function' && e.name === 'getSenderDetailsFromActivityItem'
+    ))
 
   function useActivityMessage(
     item: SlackActivityItem | undefined
   ): SlackMessage | undefined {
     const drawn = useReduxState<string | undefined>((state) => {
-      const sender = readSender(state, item)
+      const sender = readSender()?.(state, item)
       return sender?.senderType === 'app' ? undefined : sender?.senderId
     })
     const msg =
       item?.channelId && item.messageTs
         ? getRawMessage(item.channelId, item.messageTs)
         : undefined
-    return msg && { ...msg, user: drawn, icons: undefined }
+    return msg && { ...msg, user: drawn }
   }
 
   /** the bot that sent a message, if hidden */
@@ -162,17 +158,21 @@ export const messagesPromise = (async () => {
     msg: SlackMessage | undefined
   ): SlackBot | undefined {
     const botId = useReduxState(() => botIdOf(asStored(msg)))
+    const storedUser = useReduxState(() => asStored(msg)?.user)
     const stored = useReduxState<SlackBot | undefined>((state) =>
       botId ? state.bots?.[botId] : undefined
     )
     const memberBot = useReduxState<string | undefined>((state) =>
       msg?.user ? state.members?.[msg.user]?.profile?.bot_id : undefined
     )
-    if (!botId) return undefined
+    const credited = msg?.user
+    if (!botId || !credited) return undefined
     const bot = stored ?? asStored(msg)?.bot_profile ?? { id: botId }
-    if (msg?.user)
-      return memberBot === botId || bot.user_id === msg.user ? undefined : bot
-    return msg?.icons ? bot : undefined
+    // recredited via ShowRealUser or something
+    const reCredited = credited !== storedUser
+    // xoxp user message
+    const asPerson = memberBot !== botId && bot.user_id !== credited
+    return reCredited || asPerson ? bot : undefined
   }
 
   return {
