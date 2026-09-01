@@ -16,10 +16,16 @@ type SearchResult = { messages?: RelayedMessage[] }
 const RELAY_BOTS: Record<string, (msg: RelayedMessage) => unknown> = {
   // at-channel
   B08G06U6SJG: (msg) => msg.metadata?.event_payload?.source_user_id,
+  // Prometheus
+  B0AL9MCCBJL: (msg) => msg.metadata?.event_payload?.source_user_id,
+  // Slack Extra
+  B09QQ24JRL1: (msg) => msg.metadata?.event_payload?.poster,
   // bChannel
   B0BJDMND6HX: (msg) => msg.metadata?.event_payload?.source_user_id,
   // Ping Bot
   B0BEYA2UKPZ: (msg) => msg.metadata?.event_payload?.source_user_id,
+  // nChannel
+  B0BJB280JP8: (msg) => msg.metadata?.event_payload?.source_user_id,
 }
 
 export default class ShowRealUser extends TautPlugin {
