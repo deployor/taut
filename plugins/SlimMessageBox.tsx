@@ -72,22 +72,27 @@ const layoutCss = (hiddenButtons: number) => `
     align-items: flex-end !important;
     column-gap: 6px;
   }
-  ${ONE_LINE} .c-basic_container__body > :first-child { order: 0; flex: 1 0 100%; }
-  ${ONE_LINE} .c-basic_container__body > :first-child:empty { display: none; }
+  /* everything slack stacks above the editor (alerts, the formatting bar) keeps a
+     full-width row, in the order its grid-template-areas gives them */
+  ${ONE_LINE} .c-basic_container__body > * { order: 0; flex: 1 0 100%; }
+  ${ONE_LINE} .c-basic_container__body > :empty { display: none; }
+  ${ONE_LINE} .c-wysiwyg_container__formatting { order: 1; }
+  ${ONE_LINE} .c-wysiwyg_container__message_suggestions { order: 2; }
   ${ONE_LINE} .c-texty_input_unstyled__container {
-    order: 1;
+    order: 3;
     flex: 100 1 0% !important;
     min-width: min(${MIN_EDITOR_WIDTH}px, 100%);
   }
+  ${ONE_LINE} .c-wysiwyg_container__draft { order: 4; }
   ${ONE_LINE} .p-threads_footer__input_container__broadcast_controls {
-    order: 2;
+    order: 5;
     flex: 1 0 100%;
   }
   /* whole and last, so attach, buttons and send wrap as a unit with send in the
      corner. Its own line below the query, where the contained row measures ~0 */
   ${ONE_LINE} .c-wysiwyg_container__footer {
     display: flex !important;
-    order: 3;
+    order: 6;
     flex: 1 0 100% !important;
     flex-wrap: wrap;
     min-width: 0;
@@ -107,7 +112,7 @@ const layoutCss = (hiddenButtons: number) => `
     }
     /* slack leaves this no bottom padding, having always had the buttons below it */
     ${ONE_LINE} .p-threads_footer__input_container__broadcast_controls {
-      order: 4;
+      order: 7;
       padding-bottom: 8px;
     }
     /* slack sizes this row from the OUTSIDE (container-type: inline-size), so
