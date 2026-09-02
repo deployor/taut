@@ -1,6 +1,12 @@
 // Reads and edits Slack message objects, and works out which bot sent one
 
-import { getRawState, reduxPromise } from './redux'
+import {
+  getPatchVersion,
+  getRawState,
+  mapEntries,
+  patchSlice,
+  reduxPromise,
+} from './redux'
 import { findExportPromise } from './webpack'
 
 export type SlackBotIcons = {
@@ -106,6 +112,120 @@ export function modifyMessageObject(
   return next
 }
 
+type HistorySlice = {
+  timestamps?: string[]
+  start?: string
+  end?: string
+}
+type ChannelHistory = {
+  slices?: HistorySlice[]
+  /** whether the oldest slice includes the conversation's first message */
+  reachedStart?: boolean
+  /** whether the newest slice includes the latest message */
+  reachedEnd?: boolean
+}
+
+const historyKeyChannel = (key: string): string => key.split('-')[0]
+const historyKeyThread = (key: string): string | undefined =>
+  key.includes('-') ? key.slice(key.indexOf('-') + 1) : undefined
+
+function inHistory(msg: SlackMessage, thread: string | undefined): boolean {
+  const parent = typeof msg.thread_ts === 'string' ? msg.thread_ts : undefined
+  if (thread !== undefined) return parent === thread
+  // in the channel itself a reply only shows when it was also broadcast
+  return (
+    parent === undefined ||
+    parent === msg.ts ||
+    msg.subtype === 'thread_broadcast'
+  )
+}
+
+function withTimestamps(
+  history: ChannelHistory,
+  added: string[]
+): HistorySlice[] {
+  const slices = history.slices ?? []
+  const last = slices.length - 1
+  let changed = false
+  const next = slices.map((slice, position) => {
+    const { timestamps, start, end } = slice
+    if (!Array.isArray(timestamps)) return slice
+    const covers = (ts: string) =>
+      (start === undefined ||
+        ts >= start ||
+        (position === 0 && history.reachedStart === true)) &&
+      (end === undefined ||
+        ts <= end ||
+        (position === last && history.reachedEnd === true))
+    const missing = added.filter((ts) => covers(ts) && !timestamps.includes(ts))
+    if (!missing.length) return slice
+    changed = true
+    // slack timestamps are fixed-width, so they sort as plain strings
+    return { ...slice, timestamps: [...timestamps, ...missing].sort() }
+  })
+  return changed ? next : slices
+}
+
+export function injectMessages(
+  getMessages: () => Iterable<SlackMessage>
+): () => void {
+  let indexedAt = -1
+  let byChannel = new Map<string, Map<string, SlackMessage>>()
+
+  const index = () => {
+    if (indexedAt === getPatchVersion()) return byChannel
+    indexedAt = getPatchVersion()
+    byChannel = new Map()
+    for (const msg of getMessages()) {
+      if (typeof msg?.channel !== 'string' || typeof msg.ts !== 'string')
+        continue
+      let bucket = byChannel.get(msg.channel)
+      if (!bucket) {
+        bucket = new Map()
+        byChannel.set(msg.channel, bucket)
+      }
+      bucket.set(msg.ts, msg)
+    }
+    return byChannel
+  }
+
+  const unpatchMessages = patchSlice<object>(
+    'messages',
+    (channel, bucket) => {
+      const injected = index().get(channel)
+      if (!injected?.size) return bucket
+      return mapEntries<SlackMessage>(
+        bucket ?? {},
+        (ts, msg) => injected.get(ts) ?? msg,
+        () => injected.keys()
+      )
+    },
+    () => index().keys()
+  )
+
+  const unpatchHistory = patchSlice<ChannelHistory>(
+    'channelHistory',
+    (key, entry) => {
+      const slices = entry?.slices
+      if (!entry || !Array.isArray(slices)) return entry
+      const injected = index().get(historyKeyChannel(key))
+      if (!injected?.size) return entry
+      const thread = historyKeyThread(key)
+      const added = [...injected.values()]
+        .filter((msg) => inHistory(msg, thread))
+        .map((msg) => msg.ts as string)
+      if (!added.length) return entry
+      const next = withTimestamps(entry, added)
+      return next === slices ? entry : { ...entry, slices: next }
+    }
+  )
+
+  return () => {
+    unpatchMessages()
+    unpatchHistory()
+  }
+}
+
 type SenderDetails = (
   state: any,
   item: SlackActivityItem | undefined
@@ -149,6 +269,7 @@ export const messagesPromise = (async () => {
     getRawMessage,
     asRawMessage,
     getMessageBotId,
+    injectMessages,
     modifyMessageObject,
     useActivityMessage,
     useMessageBot,

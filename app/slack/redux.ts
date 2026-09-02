@@ -88,7 +88,7 @@ const subscribePatches = (notify: () => void) => {
   patchListeners.add(notify)
   return () => void patchListeners.delete(notify)
 }
-const getPatchVersion = () => statePatchVersion
+export const getPatchVersion = () => statePatchVersion
 
 /** Invalidate patched reads and nudge connected views to re-read */
 export function refreshState(): void {

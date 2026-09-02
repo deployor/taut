@@ -36,7 +36,7 @@ const RELAY_BOTS: Record<string, (msg: RelayedMessage) => unknown> = {
   // forge
   B0APKS1DZAQ: (msg) => msg.metadata?.event_payload?.source_user_id,
   // izie's pet
-  B0AJHVBLHUN: (msg) => msg.metadata?.event_payload?.source_user_id
+  B0AJHVBLHUN: (msg) => msg.metadata?.event_payload?.source_user_id,
 }
 
 export default class ShowRealUser extends TautPlugin {

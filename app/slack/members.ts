@@ -1,7 +1,12 @@
 // Reads Slack member profiles from the redux store
 
 import { reactPromise } from './react'
-import { dispatchThunk, getReduxStore, reduxPromise } from './redux'
+import {
+  dispatchThunk,
+  getRawState,
+  getReduxStore,
+  reduxPromise,
+} from './redux'
 import { findExportPromise } from './webpack'
 
 export type SlackMember = {
@@ -81,6 +86,11 @@ export function getCachedMember(userId: string): SlackMember | undefined {
   return loaded(getReduxStore()?.getState().members?.[userId])
 }
 
+/** the member this client is signed in as */
+export function getCurrentMemberId(): string | undefined {
+  return getRawState()?.bootData?.user_id
+}
+
 const inFlight = new Map<string, Promise<SlackMember | undefined>>()
 
 /** Get a member, asking slack to fetch them if the store hasn't got them yet */
@@ -132,7 +142,13 @@ export const membersPromise = (async () => {
     return member
   }
 
-  return { getCachedMember, getMember, useMember, modifyMemberObject }
+  return {
+    getCachedMember,
+    getCurrentMemberId,
+    getMember,
+    useMember,
+    modifyMemberObject,
+  }
 })()
 
 export type MembersAPI = Awaited<typeof membersPromise>

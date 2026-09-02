@@ -343,6 +343,44 @@ function isOriginalComponentObject(
   )
 }
 
+const notHoisted = new Set([
+  'length',
+  'name',
+  'prototype',
+  'caller',
+  'callee',
+  'arguments',
+  'displayName',
+  'defaultProps',
+  'propTypes',
+  'contextType',
+  'contextTypes',
+  'childContextTypes',
+  'getDerivedStateFromProps',
+  'getDerivedStateFromError',
+  '$$typeof',
+  'type',
+  'render',
+  'compare',
+])
+
+/**
+ * copy static values from the original component to the replaced component
+ */
+function hoistStatics(replaced: any, original: any): void {
+  const holds = (value: any) =>
+    value && (typeof value === 'function' || typeof value === 'object')
+  if (!holds(replaced) || !holds(original)) return
+  for (const key of Object.getOwnPropertyNames(original)) {
+    if (notHoisted.has(key) || Object.hasOwn(replaced, key)) continue
+    const descriptor = Object.getOwnPropertyDescriptor(original, key)
+    if (!descriptor) continue
+    try {
+      Object.defineProperty(replaced, key, descriptor)
+    } catch {}
+  }
+}
+
 const replacerResultCache = new WeakMap<
   componentReplacer,
   Map<ComponentType, ComponentType>
@@ -409,6 +447,7 @@ function resolveType(type: any, props: any): any {
       (current, replacer) => applyReplacerWithCache(replacer, current),
       originalComponent
     )
+    hoistStatics(replaced, type)
     if (cacheable) resolvedComponentCache.set(type, replaced)
     return replaced
   }

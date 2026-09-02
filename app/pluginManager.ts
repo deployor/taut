@@ -206,6 +206,10 @@ function createScopedAPI(
       patchThunk: tracked(base.redux.patchThunk),
     },
     rtm: { ...base.rtm, on: tracked(base.rtm.on) },
+    messages: {
+      ...base.messages,
+      injectMessages: tracked(base.messages.injectMessages),
+    },
     onMessageSendDelta: tracked(base.onMessageSendDelta),
     setStyle: tracked((css: string | null, key?: string) =>
       base.setStyle(css, key === undefined ? undefined : `plugin:${id}:${key}`)

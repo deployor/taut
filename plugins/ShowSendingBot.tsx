@@ -218,7 +218,8 @@ export default class ShowSendingBot extends TautPlugin {
     const credited = msg?.user
     const memberBot = this.api.members.useMember(credited ?? '')?.profile
       ?.bot_id
-    if (!bot?.id || !credited) return undefined
+    // sometimes slackbot uses BSLACKBOT or B01 and those aren't real lol
+    if (!bot?.id || !credited || (!bot.name && !bot.icons)) return undefined
     // a plugin like ShowRealUser changed the bot to a user
     const reCredited = credited !== rawUser
     // or an xoxp token posted it under a person's own account
