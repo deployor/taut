@@ -1,5 +1,6 @@
 // Reads Slack member profiles from the redux store
 
+import { reactPromise } from './react'
 import { dispatchThunk, getReduxStore, reduxPromise } from './redux'
 import { findExportPromise } from './webpack'
 
@@ -110,6 +111,7 @@ export async function getMember(
 }
 
 export const membersPromise = (async () => {
+  const React = await reactPromise
   const { useReduxState } = await reduxPromise
   const findExport = await findExportPromise
   const readMember: GetMemberById =
@@ -120,9 +122,14 @@ export const membersPromise = (async () => {
 
   /** Reactively read a member, asking Slack to load them if it hasn't yet */
   function useMember(userId: string): SlackMember | undefined {
-    return useReduxState<SlackMember | undefined>((s) =>
+    const member = useReduxState<SlackMember | undefined>((s) =>
       loaded(readMember(s, userId))
     )
+    const missing = !member
+    React.useEffect(() => {
+      if (userId && missing) void getMember(userId)
+    }, [userId, missing])
+    return member
   }
 
   return { getCachedMember, getMember, useMember, modifyMemberObject }

@@ -55,9 +55,9 @@ export type SlackAttachment = {
   [key: string]: unknown
 }
 
-const SERVICE_RE = /\/services\/(B[A-Z0-9]+)/
-
-const botIdOf = (msg: SlackMessage | undefined): string | undefined =>
+export const getMessageBotId = (
+  msg: SlackMessage | undefined
+): string | undefined =>
   msg?.bot_id ??
   msg?.bot_profile?.id ??
   (msg?.taut_bot_id as string | undefined)
@@ -69,7 +69,10 @@ export function getRawMessage(
   return getRawState()?.messages?.[channel]?.[ts]
 }
 
-const asStored = (msg: SlackMessage | undefined): SlackMessage | undefined =>
+/** the original stored version of a rendered message, before Taut's patches */
+export const asRawMessage = (
+  msg: SlackMessage | undefined
+): SlackMessage | undefined =>
   (typeof msg?.channel === 'string' &&
     msg.ts &&
     getRawMessage(msg.channel, msg.ts)) ||
@@ -87,7 +90,7 @@ export function modifyMessageObject(
   if (edits.sentBy === undefined) return next
 
   next.user = edits.sentBy
-  const bot = botIdOf(message)
+  const bot = getMessageBotId(message)
   if (bot) next.taut_bot_id = bot
   // Slack tests some of these with `in`, so delete rather than blank them
   for (const key of [
@@ -101,26 +104,6 @@ export function modifyMessageObject(
     delete next[key]
   if (next.subtype === 'bot_message') delete next.subtype
   return next
-}
-
-export function forwardedMessage(forward: {
-  channel?: string
-  messageTs?: string
-  index?: number
-  authorId?: string
-  authorLink?: string
-}): SlackMessage {
-  const { channel, messageTs, index = 0 } = forward
-  const stored =
-    channel && messageTs
-      ? getRawMessage(channel, messageTs)?.attachments?.[index]
-      : undefined
-  return {
-    user: forward.authorId,
-    bot_id: SERVICE_RE.exec(
-      stored?.author_link ?? forward.authorLink ?? ''
-    )?.[1],
-  }
 }
 
 type SenderDetails = (
@@ -153,34 +136,22 @@ export const messagesPromise = (async () => {
     return msg && { ...msg, user: drawn }
   }
 
-  /** the bot that sent a message, if hidden */
-  function useUncreditedBot(
-    msg: SlackMessage | undefined
-  ): SlackBot | undefined {
-    const botId = useReduxState(() => botIdOf(asStored(msg)))
-    const storedUser = useReduxState(() => asStored(msg)?.user)
+  function useMessageBot(msg: SlackMessage | undefined): SlackBot | undefined {
+    const botId = useReduxState(() => getMessageBotId(asRawMessage(msg)))
     const stored = useReduxState<SlackBot | undefined>((state) =>
       botId ? state.bots?.[botId] : undefined
     )
-    const memberBot = useReduxState<string | undefined>((state) =>
-      msg?.user ? state.members?.[msg.user]?.profile?.bot_id : undefined
-    )
-    const credited = msg?.user
-    if (!botId || !credited) return undefined
-    const bot = stored ?? asStored(msg)?.bot_profile ?? { id: botId }
-    // recredited via ShowRealUser or something
-    const reCredited = credited !== storedUser
-    // xoxp user message
-    const asPerson = memberBot !== botId && bot.user_id !== credited
-    return reCredited || asPerson ? bot : undefined
+    if (!botId) return undefined
+    return stored ?? asRawMessage(msg)?.bot_profile ?? { id: botId }
   }
 
   return {
     getRawMessage,
+    asRawMessage,
+    getMessageBotId,
     modifyMessageObject,
-    forwardedMessage,
     useActivityMessage,
-    useUncreditedBot,
+    useMessageBot,
   }
 })()
 
