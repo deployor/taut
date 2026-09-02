@@ -89,6 +89,7 @@ export default class UserPronouns extends TautPlugin {
           white-space: nowrap;
           cursor: default;
           user-select: none;
+          align-self: center;
         }
 
         .taut-pronouns--bulleted {
