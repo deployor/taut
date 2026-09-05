@@ -197,7 +197,7 @@ export default class MessageLogger extends TautPlugin {
   static readonly id = 'MessageLogger'
   static readonly pluginName = 'Message Logger'
   static readonly description = 'Temporarily logs deleted and edited messages'
-  static readonly authors = '<@U06UYA5GMB5>, <@U080A3QP42C>'
+  static readonly authors = '<@U078PH0GBEH>'
   static readonly defaultConfig = `
     "MessageLogger": {
       "enabled": true,
@@ -232,10 +232,6 @@ export default class MessageLogger extends TautPlugin {
   private xhrCleanup: (() => void) | null = null
   private menuObserverCleanup: (() => void) | null = null
   private lastNotificationTime = 0
-
-  private readonly MessageContext = React.createContext<
-    SlackMessage | undefined
-  >(undefined)
 
   private keyOf(channel: string | undefined, ts: string): string {
     return `${channel || '*'}:${ts}`
@@ -1825,32 +1821,6 @@ export default class MessageLogger extends TautPlugin {
         margin-top: 1px;
       }
 
-      .taut-ml-badge-deleted {
-        display: inline-flex;
-        align-items: center;
-        margin-left: 5px;
-        padding: 0 4px;
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        height: 15px;
-        line-height: 15px;
-        border-radius: 3px;
-        vertical-align: baseline;
-        user-select: none;
-        background-color: var(--dt_color-surf-negative-sec, rgba(224, 30, 90, 0.1));
-        color: var(--dt_color-content-negative, #e01e5a);
-        border: 1px solid var(--dt_color-border-negative, rgba(224, 30, 90, 0.3));
-      }
-
-      .sk-client-theme--dark .taut-ml-badge-deleted {
-        background-color: rgba(242, 73, 121, 0.15);
-        color: #f24979;
-        border-color: rgba(242, 73, 121, 0.35);
-      }
-
-
       .taut-ml-tombstone-notice {
         display: inline-flex;
         align-items: center;
@@ -2149,7 +2119,6 @@ export default class MessageLogger extends TautPlugin {
         color: #f24979;
       }
 
-      body.taut-ml-temporarily-hidden .taut-ml-badge-deleted,
       body.taut-ml-temporarily-hidden .taut-ml-tombstone-notice,
       body.taut-ml-temporarily-hidden .taut-ml-edit-section,
       body.taut-ml-temporarily-hidden .taut-ml-file-badge,
@@ -2227,81 +2196,6 @@ export default class MessageLogger extends TautPlugin {
         }
       }
       return injected
-    })
-
-    for (const name of [
-      'MessageWrapper',
-      'ThreadRootGeneric',
-      'ActivityItem',
-      'ThreadSenderAndTimestampGeneric',
-      'BroadcastPreamble',
-      'SearchResult',
-    ]) {
-      this.api.patchComponent<{ msg?: SlackMessage }>(
-        name,
-        (Original) => (props) => (
-          <this.MessageContext.Provider value={props.msg}>
-            <Original {...props} />
-          </this.MessageContext.Provider>
-        )
-      )
-    }
-
-    this.api.patchComponent<{
-      userId?: string
-      botId?: string
-      className?: string
-    }>('BaseMessageSender', (Original) => (props) => {
-      this.api.redux.usePatchVersion()
-      if (this.isTemporarilyHidden) return <Original {...props} />
-      const msg = React.useContext(this.MessageContext)
-      const channel =
-        (msg?.channel as string | undefined) || this.currentChannelId
-      const ts = msg?.ts as string | undefined
-
-      if (
-        this.options.ignoreSelf !== false &&
-        (this.isSelfDeleted(ts) ||
-          this.isSelfMessage(ts) ||
-          this.isSelfUser(msg?.user as string | undefined))
-      ) {
-        return <Original {...props} />
-      }
-
-      const isDeleted =
-        Boolean(msg?.taut_deleted) ||
-        (ts ? this.isMessageDeleted(channel, ts) : false)
-      const isClean = ts ? this.isCleanView(channel, ts) : false
-      const showDeleted = isDeleted && !isClean
-
-      if (!showDeleted) {
-        return <Original {...props} />
-      }
-
-      const { Tooltip } = this.api.elements
-      const deletedAt =
-        (msg as DeletedRecord | undefined)?.taut_deleted_at ||
-        (ts
-          ? this.deleted.get(this.keyOf(channel, ts))?.taut_deleted_at
-          : undefined)
-
-      const tooltipText = deletedAt
-        ? `Deleted on ${this.formatAbsoluteTime(deletedAt)}`
-        : 'This message was deleted'
-
-      return (
-        <>
-          <Original {...props} />
-          <Tooltip tip={tooltipText}>
-            <span
-              className="c-message__badge taut-ml-badge-deleted"
-              data-stringify-ignore="true"
-            >
-              deleted
-            </span>
-          </Tooltip>
-        </>
-      )
     })
 
     this.api.patchComponent<BlocksProps>('Blocks', (Original) => (props) => {
