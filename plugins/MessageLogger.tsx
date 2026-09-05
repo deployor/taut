@@ -1463,7 +1463,7 @@ export default class MessageLogger extends TautPlugin {
   }
 
   private injectIntoMenu(menu: HTMLElement): void {
-    if (this.isTemporarilyHidden || menu.dataset.tautMlInjected) return
+    if (this.isTemporarilyHidden) return
 
     const msgInfo = this.activeMessage || this.getMessageFromFiber(menu)
     if (!msgInfo?.ts) return
@@ -1490,8 +1490,6 @@ export default class MessageLogger extends TautPlugin {
 
     const lastItem = items[items.length - 1]
     const wrapper = lastItem.closest('li, .c-menu_item__li') || lastItem
-
-    menu.dataset.tautMlInjected = 'true'
 
     const createMenuItem = (
       label: string,
@@ -1567,8 +1565,18 @@ export default class MessageLogger extends TautPlugin {
 
   private setupKeyboardShortcut(): () => void {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isModifier = e.metaKey || e.ctrlKey || e.altKey
-      if (isModifier && e.shiftKey && e.code === 'KeyH') {
+      if (e.repeat) return
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      const isCmdOrCtrl = e.metaKey || e.ctrlKey
+      if (isCmdOrCtrl && e.shiftKey && !e.altKey && e.code === 'KeyH') {
         e.preventDefault()
         this.toggleGlobalHide()
       }
@@ -1810,8 +1818,6 @@ export default class MessageLogger extends TautPlugin {
       },
       4 * 3600 * 1000
     )
-
-    ;(window as any).tautMessageLogger = this
 
     this.api.setStyle(`
       .taut-ml-container {
@@ -2480,7 +2486,6 @@ export default class MessageLogger extends TautPlugin {
       this.saveTimer = null
     }
     document.body.classList.remove('taut-ml-temporarily-hidden')
-    delete (window as any).tautMessageLogger
     void this.persistState()
     this.api.redux.refresh()
   }
