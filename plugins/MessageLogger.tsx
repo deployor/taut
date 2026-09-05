@@ -223,14 +223,16 @@ export default class MessageLogger extends TautPlugin {
 
   private isTemporarilyHidden = false
 
-  private activeMessage: { channel: string; ts: string } | null = null
+  private readonly MessageContext = React.createContext<
+    SlackMessage | undefined
+  >(undefined)
+
   private unpatchInject: (() => void) | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private purgeTimer: ReturnType<typeof setInterval> | null = null
   private keydownCleanup: (() => void) | null = null
   private fetchCleanup: (() => void) | null = null
   private xhrCleanup: (() => void) | null = null
-  private menuObserverCleanup: (() => void) | null = null
   private lastNotificationTime = 0
 
   private keyOf(channel: string | undefined, ts: string): string {
@@ -1180,121 +1182,6 @@ export default class MessageLogger extends TautPlugin {
     }
   }
 
-  private getMessageFromFiber(
-    el: Element | null
-  ): { channel: string; ts: string } | null {
-    if (!el) return null
-    const key = Object.keys(el).find(
-      (k) =>
-        k.startsWith('__reactFiber$') ||
-        k.startsWith('__reactInternalInstance$') ||
-        k === '_reactInternals'
-    )
-    let f = key ? (el as any)[key] : null
-    for (let hops = 0; f && hops < 50; f = f.return, hops++) {
-      const props = f.memoizedProps || f.pendingProps
-      if (!props || typeof props !== 'object') continue
-
-      const msg = props.message || props.msg || props.event || props.item
-      if (msg && typeof msg === 'object' && msg.ts) {
-        return {
-          channel:
-            msg.channel ||
-            props.channel ||
-            props.channelId ||
-            this.currentChannelId,
-          ts: String(msg.ts),
-        }
-      }
-      if (
-        props.ts &&
-        typeof props.ts === 'string' &&
-        /^\d{10}\.\d{6}/.test(props.ts)
-      ) {
-        return {
-          channel: props.channel || props.channelId || this.currentChannelId,
-          ts: props.ts,
-        }
-      }
-      if (
-        props.messageTs &&
-        typeof props.messageTs === 'string' &&
-        /^\d{10}\.\d{6}/.test(props.messageTs)
-      ) {
-        return {
-          channel: props.channel || props.channelId || this.currentChannelId,
-          ts: props.messageTs,
-        }
-      }
-    }
-    return null
-  }
-
-  private findMessageFromRow(
-    target: Element | null
-  ): { channel: string; ts: string } | null {
-    if (!target) return null
-
-    const fromFiber = this.getMessageFromFiber(target)
-    if (fromFiber) return fromFiber
-
-    const tagged = target.closest('[data-taut-ml-ts]')
-    if (tagged) {
-      const ts = tagged.getAttribute('data-taut-ml-ts')
-      const channel =
-        tagged.getAttribute('data-taut-ml-channel') || this.currentChannelId
-      if (ts) return { channel, ts }
-    }
-
-    const row = target.closest(
-      '.c-message, .c-message_kit__message, .c-message_actions__container, .c-virtual_list__item, [data-qa="message_container"], [data-qa="message_content"], .c-message--focus, [id^="message-list_"][role="listitem"]'
-    )
-    if (!row) return null
-
-    const rowFiber = this.getMessageFromFiber(row)
-    if (rowFiber) return rowFiber
-
-    const childTagged = row.querySelector('[data-taut-ml-ts]')
-    if (childTagged) {
-      const ts = childTagged.getAttribute('data-taut-ml-ts')
-      const channel =
-        childTagged.getAttribute('data-taut-ml-channel') ||
-        this.currentChannelId
-      if (ts) return { channel, ts }
-    }
-
-    const nodes = row.querySelectorAll('*')
-    for (let i = 0; i < nodes.length && i < 100; i++) {
-      const childFiber = this.getMessageFromFiber(nodes[i])
-      if (childFiber) return childFiber
-    }
-
-    const link = row
-      .querySelector('a[href*="/archives/"]')
-      ?.getAttribute('href')
-    if (link) {
-      const pMatch = link.match(/\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})/)
-      if (pMatch) {
-        return { channel: pMatch[1], ts: `${pMatch[2]}.${pMatch[3]}` }
-      }
-    }
-
-    const attr =
-      row.getAttribute('data-ts') ||
-      row.getAttribute('data-message-ts') ||
-      row.getAttribute('data-item-key') ||
-      row.querySelector('[data-ts]')?.getAttribute('data-ts') ||
-      row.querySelector('.c-timestamp')?.getAttribute('data-ts') ||
-      row.id ||
-      ''
-    const match = String(attr).match(/\d{10}\.\d{6}/)
-    if (match) {
-      return { channel: this.currentChannelId, ts: match[0] }
-    }
-
-    return null
-  }
-
   private setupFetchInterceptor(): () => void {
     const originalFetch = window.fetch
     const self = this
@@ -1385,180 +1272,6 @@ export default class MessageLogger extends TautPlugin {
     }
   }
 
-  private attachMenuObserver(): () => void {
-    const checkMenus = () => {
-      const menus = document.querySelectorAll<HTMLElement>(
-        '[role="menu"], .c-menu'
-      )
-      menus.forEach((menu) => {
-        this.injectIntoMenu(menu)
-      })
-    }
-
-    let rafId: number | null = null
-    const debouncedCheckMenus = () => {
-      if (rafId !== null) return
-      rafId = requestAnimationFrame(() => {
-        rafId = null
-        checkMenus()
-      })
-    }
-
-    const observer = new MutationObserver(debouncedCheckMenus)
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    })
-
-    const pendingTimers = new Set<ReturnType<typeof setTimeout>>()
-
-    const scheduleCheck = (delay: number) => {
-      const id = setTimeout(() => {
-        pendingTimers.delete(id)
-        checkMenus()
-      }, delay)
-      pendingTimers.add(id)
-    }
-
-    const onPointer = (e: Event) => {
-      const target = e.target as Element | null
-      if (target?.closest?.('[role="menu"], .c-menu, [data-qa*="menu"]')) {
-        return
-      }
-      const found = this.findMessageFromRow(target)
-      if (found) {
-        this.activeMessage = found
-      }
-      scheduleCheck(10)
-      scheduleCheck(50)
-      scheduleCheck(150)
-    }
-
-    document.addEventListener('contextmenu', onPointer, {
-      capture: true,
-      passive: true,
-    })
-    document.addEventListener('pointerdown', onPointer, {
-      capture: true,
-      passive: true,
-    })
-
-    return () => {
-      observer.disconnect()
-      if (rafId !== null) cancelAnimationFrame(rafId)
-      for (const id of pendingTimers) clearTimeout(id)
-      pendingTimers.clear()
-      document.removeEventListener('contextmenu', onPointer, {
-        capture: true,
-      })
-      document.removeEventListener('pointerdown', onPointer, {
-        capture: true,
-      })
-    }
-  }
-
-  private injectIntoMenu(menu: HTMLElement): void {
-    if (this.isTemporarilyHidden) return
-
-    const msgInfo = this.activeMessage || this.getMessageFromFiber(menu)
-    if (!msgInfo?.ts) return
-
-    const { channel, ts } = msgInfo
-    const isDeleted = this.isMessageDeleted(channel, ts)
-    const isEdited = this.isMessageEdited(channel, ts)
-    if (!isDeleted && !isEdited) return
-
-    const isClean = this.isCleanView(channel, ts)
-    const isEdHidden = this.isEditsHidden(channel, ts)
-
-    if (
-      menu.querySelector('[data-taut-ml-item]') ||
-      menu.querySelector('[data-qa*="taut-ml"]')
-    ) {
-      return
-    }
-
-    const items = menu.querySelectorAll<HTMLElement>(
-      'button[role="menuitem"], [role="menuitem"], .c-menu_item__button'
-    )
-    if (!items.length) return
-
-    const lastItem = items[items.length - 1]
-    const wrapper = lastItem.closest('li, .c-menu_item__li') || lastItem
-
-    const createMenuItem = (
-      label: string,
-      onClick: () => void,
-      isDanger = false
-    ) => {
-      const clone = wrapper.cloneNode(true) as HTMLElement
-      clone.setAttribute('data-taut-ml-item', 'true')
-      clone.removeAttribute('id')
-      clone.querySelectorAll('[id]').forEach((el) => {
-        el.removeAttribute('id')
-      })
-
-      const btn = clone.matches('button, [role="menuitem"]')
-        ? clone
-        : clone.querySelector<HTMLElement>('button, [role="menuitem"]') || clone
-
-      for (const el of [clone, ...Array.from(clone.querySelectorAll('*'))]) {
-        if (el.classList) {
-          const toRemove: string[] = []
-          for (let i = 0; i < el.classList.length; i++) {
-            const cls = el.classList.item(i)
-            if (cls && /highlight|selected/i.test(cls)) toRemove.push(cls)
-          }
-          toRemove.forEach((cls) => {
-            el.classList.remove(cls)
-          })
-        }
-        if (el.getAttribute?.('aria-selected') === 'true') {
-          el.setAttribute('aria-selected', 'false')
-        }
-      }
-
-      const labelEl = clone.querySelector('.c-menu_item__label') || btn
-      labelEl.textContent = label
-      if (isDanger) {
-        ;(btn as HTMLElement).style.color =
-          'var(--dt_color-content-negative, #e01e5a)'
-      }
-
-      btn.addEventListener('click', (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        onClick()
-        document.dispatchEvent(
-          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
-        )
-      })
-
-      return clone
-    }
-
-    const fragment = document.createDocumentFragment()
-
-    if (isDeleted) {
-      fragment.appendChild(
-        createMenuItem(
-          isClean ? 'Show deletion notice' : 'Hide deletion notice',
-          () => this.toggleCleanView(channel, ts)
-        )
-      )
-    } else if (isEdited) {
-      fragment.appendChild(
-        createMenuItem(
-          isEdHidden ? 'Show edit history' : 'Hide edit history',
-          () => this.toggleHideEdits(channel, ts)
-        )
-      )
-    }
-
-    wrapper.after(fragment)
-  }
-
   private setupKeyboardShortcut(): () => void {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return
@@ -1586,9 +1299,11 @@ export default class MessageLogger extends TautPlugin {
   private readonly TombstoneNotice = ({
     deletedAt,
     editCount = 0,
+    onDismiss,
   }: {
     deletedAt?: number
     editCount?: number
+    onDismiss?: () => void
   }) => {
     const relTime = deletedAt ? this.formatRelativeTime(deletedAt) : ''
     const fullTime = deletedAt ? this.formatAbsoluteTime(deletedAt) : ''
@@ -1621,6 +1336,16 @@ export default class MessageLogger extends TautPlugin {
         <span className="taut-ml-tombstone-text">{text}</span>
         {relTime ? (
           <span className="taut-ml-tombstone-time">({relTime})</span>
+        ) : null}
+        {onDismiss ? (
+          <button
+            type="button"
+            className="taut-ml-tombstone-hide-btn"
+            onClick={onDismiss}
+            title="Hide deletion notice"
+          >
+            [hide]
+          </button>
         ) : null}
       </div>
     )
@@ -1802,7 +1527,6 @@ export default class MessageLogger extends TautPlugin {
     await this.loadPersistedState()
     if (this.api.signal.aborted) return
 
-    this.menuObserverCleanup = this.attachMenuObserver()
     this.fetchCleanup = this.setupFetchInterceptor()
     this.xhrCleanup = this.setupXhrInterceptor()
     this.keydownCleanup = this.setupKeyboardShortcut()
@@ -1853,6 +1577,25 @@ export default class MessageLogger extends TautPlugin {
         font-style: normal;
         font-size: 11px;
         color: var(--dt_color-content-ter, #868686);
+      }
+
+      .taut-ml-tombstone-hide-btn {
+        display: inline-flex;
+        align-items: center;
+        margin-left: 4px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 11px;
+        color: var(--dt_color-content-ter, #868686);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        opacity: 0.7;
+      }
+
+      .taut-ml-tombstone-hide-btn:hover {
+        opacity: 1;
       }
 
       .taut-ml-deleted--red,
@@ -2198,6 +1941,24 @@ export default class MessageLogger extends TautPlugin {
       return injected
     })
 
+    for (const name of [
+      'MessageWrapper',
+      'ThreadRootGeneric',
+      'ActivityItem',
+      'ThreadSenderAndTimestampGeneric',
+      'BroadcastPreamble',
+      'SearchResult',
+    ]) {
+      this.api.patchComponent<{ msg?: SlackMessage }>(
+        name,
+        (Original) => (props) => (
+          <this.MessageContext.Provider value={props.msg}>
+            <Original {...props} />
+          </this.MessageContext.Provider>
+        )
+      )
+    }
+
     this.api.patchComponent<BlocksProps>('Blocks', (Original) => (props) => {
       this.api.redux.usePatchVersion()
       if (this.isTemporarilyHidden) return <Original {...props} />
@@ -2272,6 +2033,7 @@ export default class MessageLogger extends TautPlugin {
             <this.TombstoneNotice
               deletedAt={deletedAt}
               editCount={showEdits ? editList.length : 0}
+              onDismiss={() => this.toggleCleanView(channel, ts)}
             />
           )}
           {hasBlocks ? (
@@ -2293,15 +2055,18 @@ export default class MessageLogger extends TautPlugin {
       'MenuFromTemplate',
       (Original) => (props) => {
         const template = props.template
-        if (
-          this.isTemporarilyHidden ||
-          !Array.isArray(template) ||
-          !this.activeMessage
-        ) {
+        if (this.isTemporarilyHidden || !Array.isArray(template)) {
           return <Original {...props} />
         }
 
-        const { channel, ts } = this.activeMessage
+        const msg = React.useContext(this.MessageContext)
+        if (!msg?.ts) {
+          return <Original {...props} />
+        }
+
+        const channel =
+          (msg.channel as string | undefined) || this.currentChannelId
+        const ts = msg.ts as string
         const isDeleted = this.isMessageDeleted(channel, ts)
         const isEdited = this.isMessageEdited(channel, ts)
 
@@ -2324,7 +2089,8 @@ export default class MessageLogger extends TautPlugin {
             icon: isClean ? 'eye' : 'eye-slash',
             click: () => this.toggleCleanView(channel, ts),
           })
-        } else if (isEdited) {
+        }
+        if (isEdited) {
           extra.push({
             key: 'taut-ml__toggle-edits',
             label: isEdHidden ? 'Show edit history' : 'Hide edit history',
@@ -2351,10 +2117,6 @@ export default class MessageLogger extends TautPlugin {
   }
 
   stop() {
-    if (this.menuObserverCleanup) {
-      this.menuObserverCleanup()
-      this.menuObserverCleanup = null
-    }
     if (this.fetchCleanup) {
       this.fetchCleanup()
       this.fetchCleanup = null
