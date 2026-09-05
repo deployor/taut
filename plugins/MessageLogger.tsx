@@ -668,16 +668,16 @@ export default class MessageLogger extends TautPlugin {
       previous.user ||
       (message.edited as { user?: string })?.user) as string | undefined
 
-    const isSelfEdit =
-      this.isSelfDeleted(ts) ||
+    if (this.isSelfDeleted(ts)) return
+
+    const isSelf =
       this.isSelfMessage(ts) ||
       this.isSelfUser(user) ||
       this.isSelfUser(message.user as string | undefined) ||
       this.isSelfUser(previous.user as string | undefined)
 
-    if (this.options.ignoreSelf !== false && isSelfEdit) {
+    if (isSelf) {
       this.markSelfMessage(ts)
-      return
     }
 
     const key = this.keyOf(channel, ts)
@@ -1170,7 +1170,7 @@ export default class MessageLogger extends TautPlugin {
         for (const [key] of this.edits.entries()) {
           const split = key.indexOf(':')
           const ts = split !== -1 ? key.slice(split + 1) : key
-          if (this.isSelfDeleted(ts) || this.isSelfMessage(ts)) {
+          if (this.isSelfDeleted(ts)) {
             this.purgeSelfMessage(undefined, ts)
             purgedSelf = true
           }
@@ -2308,20 +2308,21 @@ export default class MessageLogger extends TautPlugin {
 
       if (!ts) return <Original {...props} />
 
-      if (
-        this.options.ignoreSelf !== false &&
-        (this.isSelfDeleted(ts) ||
-          this.isSelfMessage(ts) ||
-          this.isSelfUser(msg?.user as string | undefined))
-      ) {
+      if (this.options.ignoreSelf !== false && this.isSelfDeleted(ts)) {
         return <Original {...props} />
       }
 
       const key = this.keyOf(channel, ts)
+      const isSelf =
+        this.options.ignoreSelf !== false &&
+        (this.isSelfMessage(ts) ||
+          this.isSelfUser(msg?.user as string | undefined))
+
       const isDeleted =
-        Boolean(msg?.taut_deleted) ||
-        this.deleted.has(key) ||
-        this.deleted.has(this.keyOf('', ts))
+        !isSelf &&
+        (Boolean(msg?.taut_deleted) ||
+          this.deleted.has(key) ||
+          this.deleted.has(this.keyOf('', ts)))
 
       const isVanished = isDeleted && this.isMessageVanished(channel, ts)
       if (isVanished) {
