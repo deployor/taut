@@ -227,6 +227,8 @@ export default class MessageLogger extends TautPlugin {
     SlackMessage | undefined
   >(undefined)
 
+  private activeMenuMessage: { channel: string; ts: string } | null = null
+  private menuTrackingCleanup: (() => void) | null = null
   private unpatchInject: (() => void) | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private purgeTimer: ReturnType<typeof setInterval> | null = null
@@ -330,13 +332,25 @@ export default class MessageLogger extends TautPlugin {
     try {
       const raw = localStorage.getItem('localConfig_v2')
       if (raw) {
-        this.collectUserIds(JSON.parse(raw), ids)
+        const parsed = JSON.parse(raw)
+        this.collectUserIds(parsed, ids)
+        if (parsed?.teams && typeof parsed.teams === 'object') {
+          for (const t of Object.values(parsed.teams) as any[]) {
+            if (typeof t?.user_id === 'string') ids.add(t.user_id)
+          }
+        }
       }
     } catch {}
 
     try {
       const tsObj = (window as any).TS
       if (tsObj) {
+        if (typeof tsObj.boot_data?.user_id === 'string')
+          ids.add(tsObj.boot_data.user_id)
+        if (typeof tsObj.model?.user_id === 'string')
+          ids.add(tsObj.model.user_id)
+        if (typeof tsObj.model?.user?.id === 'string')
+          ids.add(tsObj.model.user.id)
         this.collectUserIds(tsObj.boot_data, ids)
         this.collectUserIds(tsObj.model, ids)
       }
@@ -345,12 +359,23 @@ export default class MessageLogger extends TautPlugin {
     try {
       const state = this.api.redux.getRawState()
       if (typeof state?.activeUserId === 'string') ids.add(state.activeUserId)
+      if (typeof state?.bootData?.user_id === 'string')
+        ids.add(state.bootData.user_id)
       if (typeof state?.users?.self?.id === 'string')
         ids.add(state.users.self.id)
       if (typeof state?.auth?.user_id === 'string') ids.add(state.auth.user_id)
+      if (state?.teams && typeof state.teams === 'object') {
+        for (const t of Object.values(state.teams) as any[]) {
+          if (typeof t?.user_id === 'string') ids.add(t.user_id)
+        }
+      }
       const current = this.api.members.getCurrentMemberId()
       if (current) ids.add(current)
     } catch {}
+
+    for (const cachedId of this.selfUserIdsCache) {
+      ids.add(cachedId)
+    }
 
     this.selfUserIdsCache = ids
     return ids
@@ -387,7 +412,13 @@ export default class MessageLogger extends TautPlugin {
     if (current) return current
     try {
       const state = this.api.redux.getRawState()
-      return state?.activeUserId || state?.users?.self?.id || ''
+      return (
+        state?.bootData?.user_id ||
+        state?.activeUserId ||
+        state?.users?.self?.id ||
+        state?.auth?.user_id ||
+        ''
+      )
     } catch {
       return ''
     }
@@ -432,6 +463,95 @@ export default class MessageLogger extends TautPlugin {
       }
     } catch {}
     return undefined
+  }
+
+  private getMessageFromFiber(
+    el: Element | null
+  ): { channel: string; ts: string } | null {
+    if (!el) return null
+    const key = Object.keys(el).find(
+      (k) =>
+        k.startsWith('__reactFiber$') ||
+        k.startsWith('__reactInternalInstance$') ||
+        k === '_reactInternals'
+    )
+    const f = key
+      ? (el as any)[key]
+      : (globalThis as any).getFiberFromNode?.(el)
+    for (
+      let curr = f, hops = 0;
+      curr && hops < 50;
+      curr = curr.return, hops++
+    ) {
+      const props = curr.memoizedProps || curr.pendingProps
+      if (!props || typeof props !== 'object') continue
+
+      const msg = props.message || props.msg || props.event || props.item
+      if (msg && typeof msg === 'object' && msg.ts) {
+        return {
+          channel:
+            msg.channel ||
+            props.channel ||
+            props.channelId ||
+            this.currentChannelId,
+          ts: String(msg.ts),
+        }
+      }
+      if (
+        props.ts &&
+        typeof props.ts === 'string' &&
+        /^\d{10}\.\d{6}/.test(props.ts)
+      ) {
+        return {
+          channel: props.channel || props.channelId || this.currentChannelId,
+          ts: props.ts,
+        }
+      }
+      if (
+        props.messageTs &&
+        typeof props.messageTs === 'string' &&
+        /^\d{10}\.\d{6}/.test(props.messageTs)
+      ) {
+        return {
+          channel: props.channel || props.channelId || this.currentChannelId,
+          ts: props.messageTs,
+        }
+      }
+    }
+    return null
+  }
+
+  private findMessageFromElement(
+    el: Element | null
+  ): { channel: string; ts: string } | null {
+    if (!el) return null
+
+    const tagged = el.closest('[data-taut-ml-ts]')
+    if (tagged) {
+      const ts = tagged.getAttribute('data-taut-ml-ts')
+      const channel =
+        tagged.getAttribute('data-taut-ml-channel') || this.currentChannelId
+      if (ts) return { channel, ts }
+    }
+
+    const row = el.closest(
+      '.c-message, .c-message_kit__message, .c-message_actions__container, .c-virtual_list__item, [data-qa="message_container"], [data-qa="message_content"], [id^="message-list_"][role="listitem"]'
+    )
+    if (row) {
+      const childTagged = row.querySelector('[data-taut-ml-ts]')
+      if (childTagged) {
+        const ts = childTagged.getAttribute('data-taut-ml-ts')
+        const channel =
+          childTagged.getAttribute('data-taut-ml-channel') ||
+          this.currentChannelId
+        if (ts) return { channel, ts }
+      }
+
+      const fromFiber = this.getMessageFromFiber(row)
+      if (fromFiber) return fromFiber
+    }
+
+    return this.getMessageFromFiber(el)
   }
 
   private extractTextFromBlocks(blocks: unknown): string {
@@ -549,26 +669,56 @@ export default class MessageLogger extends TautPlugin {
 
     try {
       const parsedUrl = new URL(urlStr, window.location.origin)
-      channel = parsedUrl.searchParams.get('channel') || ''
-      ts = parsedUrl.searchParams.get('ts') || ''
+      channel =
+        parsedUrl.searchParams.get('channel') ||
+        parsedUrl.searchParams.get('channel_id') ||
+        ''
+      ts =
+        parsedUrl.searchParams.get('ts') ||
+        parsedUrl.searchParams.get('message_ts') ||
+        parsedUrl.searchParams.get('deleted_ts') ||
+        ''
     } catch {}
 
     if ((!channel || !ts) && body) {
-      if (body instanceof FormData) {
-        channel = channel || (body.get('channel') as string) || ''
-        ts = ts || (body.get('ts') as string) || ''
-      } else if (body instanceof URLSearchParams) {
-        channel = channel || body.get('channel') || ''
-        ts = ts || body.get('ts') || ''
+      if (typeof FormData !== 'undefined' && body instanceof FormData) {
+        channel =
+          channel ||
+          (body.get('channel') as string) ||
+          (body.get('channel_id') as string) ||
+          ''
+        ts =
+          ts ||
+          (body.get('ts') as string) ||
+          (body.get('message_ts') as string) ||
+          (body.get('deleted_ts') as string) ||
+          ''
+      } else if (
+        typeof URLSearchParams !== 'undefined' &&
+        body instanceof URLSearchParams
+      ) {
+        channel = channel || body.get('channel') || body.get('channel_id') || ''
+        ts =
+          ts ||
+          body.get('ts') ||
+          body.get('message_ts') ||
+          body.get('deleted_ts') ||
+          ''
       } else if (typeof body === 'string') {
         try {
           const parsed = JSON.parse(body)
-          channel = channel || parsed.channel || ''
-          ts = ts || parsed.ts || ''
+          channel = channel || parsed.channel || parsed.channel_id || ''
+          ts = ts || parsed.ts || parsed.message_ts || parsed.deleted_ts || ''
         } catch {
           const params = new URLSearchParams(body)
-          channel = channel || params.get('channel') || ''
-          ts = ts || params.get('ts') || ''
+          channel =
+            channel || params.get('channel') || params.get('channel_id') || ''
+          ts =
+            ts ||
+            params.get('ts') ||
+            params.get('message_ts') ||
+            params.get('deleted_ts') ||
+            ''
         }
       }
     }
@@ -737,7 +887,9 @@ export default class MessageLogger extends TautPlugin {
       this.currentChannelId) as string
     const key = this.keyOf(channel, ts)
 
-    const raw = this.api.messages.getRawMessage(channel, ts)
+    const raw =
+      this.findRawMessageByTs(ts, channel) ||
+      this.api.messages.getRawMessage(channel, ts)
     const existingDeleted =
       this.deleted.get(key) || this.deleted.get(this.keyOf('', ts))
     const known = this.known.get(key) || this.known.get(this.keyOf('', ts))
@@ -767,8 +919,11 @@ export default class MessageLogger extends TautPlugin {
       this.isSelfUser(message.user as string | undefined)
 
     if (this.options.ignoreSelf !== false && isSelfDelete) {
+      this.markSelfDeleted(ts)
+      this.markSelfMessage(ts)
       this.purgeSelfMessage(channel, ts)
       this.scheduleSave()
+      this.api.redux.refresh()
       return
     }
 
@@ -1155,17 +1310,20 @@ export default class MessageLogger extends TautPlugin {
 
       if (this.options.ignoreSelf !== false) {
         let purgedSelf = false
-        for (const rec of this.deleted.values()) {
+        for (const rec of Array.from(this.deleted.values())) {
+          if (!rec.ts) continue
+          const rawUser =
+            rec.user || this.findRawMessageByTs(rec.ts, rec.channel)?.user
           if (
             this.isSelfDeleted(rec.ts) ||
             this.isSelfMessage(rec.ts) ||
-            this.isSelfUser(rec.user as string | undefined)
+            this.isSelfUser(rawUser as string | undefined)
           ) {
             this.purgeSelfMessage(rec.channel, rec.ts)
             purgedSelf = true
           }
         }
-        for (const [key] of this.edits.entries()) {
+        for (const [key] of Array.from(this.edits.entries())) {
           const split = key.indexOf(':')
           const ts = split !== -1 ? key.slice(split + 1) : key
           if (this.isSelfDeleted(ts)) {
@@ -1199,9 +1357,51 @@ export default class MessageLogger extends TautPlugin {
               : (input as Request)?.url || ''
 
         if (url.includes('chat.delete')) {
-          const { channel, ts } = self.parseChannelAndTs(url, init?.body)
+          let { channel, ts } = self.parseChannelAndTs(url, init?.body)
+          if (
+            !ts &&
+            typeof Request !== 'undefined' &&
+            input instanceof Request
+          ) {
+            const parsed = self.parseChannelAndTs(input.url, undefined)
+            channel = channel || parsed.channel
+            ts = ts || parsed.ts
+            if (!ts) {
+              try {
+                input
+                  .clone()
+                  .text()
+                  .then((bodyText) => {
+                    const asyncParsed = self.parseChannelAndTs(
+                      input.url,
+                      bodyText
+                    )
+                    if (asyncParsed.ts) {
+                      self.markSelfDeleted(asyncParsed.ts)
+                      self.markSelfMessage(asyncParsed.ts)
+                      const rawMsg = self.findRawMessageByTs(
+                        asyncParsed.ts,
+                        asyncParsed.channel
+                      )
+                      if (rawMsg?.user) {
+                        self.selfUserIdsCache.add(rawMsg.user)
+                      }
+                      self.purgeSelfMessage(asyncParsed.channel, asyncParsed.ts)
+                      self.scheduleSave()
+                      self.api.redux.refresh()
+                    }
+                  })
+                  .catch(() => {})
+              } catch {}
+            }
+          }
           if (ts) {
             self.markSelfDeleted(ts)
+            self.markSelfMessage(ts)
+            const rawMsg = self.findRawMessageByTs(ts, channel)
+            if (rawMsg?.user) {
+              self.selfUserIdsCache.add(rawMsg.user)
+            }
             self.purgeSelfMessage(channel, ts)
           }
           if (self.options.ignoreSelf !== false) {
@@ -1247,6 +1447,11 @@ export default class MessageLogger extends TautPlugin {
           const { channel, ts } = self.parseChannelAndTs(url, body)
           if (ts) {
             self.markSelfDeleted(ts)
+            self.markSelfMessage(ts)
+            const rawMsg = self.findRawMessageByTs(ts, channel)
+            if (rawMsg?.user) {
+              self.selfUserIdsCache.add(rawMsg.user)
+            }
             self.purgeSelfMessage(channel, ts)
           }
           if (self.options.ignoreSelf !== false) {
@@ -1293,6 +1498,26 @@ export default class MessageLogger extends TautPlugin {
     document.addEventListener('keydown', handleKeyDown)
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
+    }
+  }
+
+  private setupMenuTracking(): () => void {
+    const onAction = (e: Event) => {
+      const target = e.target as Element | null
+      if (!target) return
+      if (target.closest('.c-menu, [role="menu"]')) return
+      const found = this.findMessageFromElement(target)
+      if (found) {
+        this.activeMenuMessage = found
+      }
+    }
+
+    window.addEventListener('contextmenu', onAction, { capture: true })
+    window.addEventListener('pointerdown', onAction, { capture: true })
+
+    return () => {
+      window.removeEventListener('contextmenu', onAction, { capture: true })
+      window.removeEventListener('pointerdown', onAction, { capture: true })
     }
   }
 
@@ -1530,6 +1755,7 @@ export default class MessageLogger extends TautPlugin {
     this.fetchCleanup = this.setupFetchInterceptor()
     this.xhrCleanup = this.setupXhrInterceptor()
     this.keydownCleanup = this.setupKeyboardShortcut()
+    this.menuTrackingCleanup = this.setupMenuTracking()
 
     this.purgeExpiredLogs()
     this.purgeTimer = setInterval(
@@ -1917,19 +2143,52 @@ export default class MessageLogger extends TautPlugin {
         if (!next.channel) {
           next = { ...next, channel: channelId }
         }
+        if (this.isSelfUser(next.user as string | undefined)) {
+          this.markSelfMessage(ts)
+        }
         this.rememberMessage(channelId, ts, next)
         return next
       })
+    })
+
+    this.api.redux.patchSlice<object>('threads', (channelId, threadBucket) => {
+      if (!threadBucket || typeof threadBucket !== 'object') return threadBucket
+      return this.api.redux.mapEntries<any>(
+        threadBucket,
+        (_threadTs, threadObj) => {
+          if (!threadObj || typeof threadObj !== 'object') return threadObj
+          if (Array.isArray(threadObj.replies)) {
+            for (const reply of threadObj.replies) {
+              if (reply?.ts) {
+                if (this.isSelfUser(reply.user)) this.markSelfMessage(reply.ts)
+                this.rememberMessage(channelId, reply.ts, reply)
+              }
+            }
+          }
+          if (threadObj.messages && typeof threadObj.messages === 'object') {
+            for (const [mTs, mMsg] of Object.entries(
+              threadObj.messages
+            ) as any[]) {
+              if (mMsg && mTs) {
+                if (this.isSelfUser(mMsg.user)) this.markSelfMessage(mTs)
+                this.rememberMessage(channelId, mTs, mMsg)
+              }
+            }
+          }
+          return threadObj
+        }
+      )
     })
 
     this.unpatchInject = this.api.messages.injectMessages(() => {
       const injected: SlackMessage[] = []
       for (const [key, msg] of this.deleted.entries()) {
         if (key.startsWith('*:')) continue
+        const ts = msg.ts as string
         if (
           this.options.ignoreSelf !== false &&
-          (this.isSelfDeleted(msg.ts as string) ||
-            this.isSelfMessage(msg.ts as string) ||
+          (this.isSelfDeleted(ts) ||
+            this.isSelfMessage(ts) ||
             this.isSelfUser(msg.user as string | undefined))
         ) {
           continue
@@ -1969,21 +2228,38 @@ export default class MessageLogger extends TautPlugin {
 
       if (!ts) return <Original {...props} />
 
-      if (this.options.ignoreSelf !== false && this.isSelfDeleted(ts)) {
-        return <Original {...props} />
+      if (msg) {
+        this.rememberMessage(channel, ts, msg)
+        if (this.isSelfUser(msg.user as string | undefined)) {
+          this.markSelfMessage(ts)
+          if (typeof msg.user === 'string') {
+            this.selfUserIdsCache.add(msg.user)
+          }
+        }
       }
 
       const key = this.keyOf(channel, ts)
       const isSelf =
         this.options.ignoreSelf !== false &&
-        (this.isSelfMessage(ts) ||
+        (this.isSelfDeleted(ts) ||
+          this.isSelfMessage(ts) ||
           this.isSelfUser(msg?.user as string | undefined))
 
-      const isDeleted =
-        !isSelf &&
-        (Boolean(msg?.taut_deleted) ||
+      if (isSelf) {
+        if (
           this.deleted.has(key) ||
-          this.deleted.has(this.keyOf('', ts)))
+          this.deleted.has(this.keyOf('', ts)) ||
+          msg?.taut_deleted
+        ) {
+          this.purgeSelfMessage(channel, ts)
+        }
+        return <Original {...props} />
+      }
+
+      const isDeleted =
+        Boolean(msg?.taut_deleted) ||
+        this.deleted.has(key) ||
+        this.deleted.has(this.keyOf('', ts))
 
       const isVanished = isDeleted && this.isMessageVanished(channel, ts)
       if (isVanished) {
@@ -1995,8 +2271,8 @@ export default class MessageLogger extends TautPlugin {
 
       const editList =
         this.edits.get(key) || this.edits.get(this.keyOf('', ts)) || []
-      const isEditsHidden = this.isEditsHidden(channel, ts)
-      const showEdits = editList.length > 0 && !isEditsHidden && !isClean
+      const isEdHidden = this.isEditsHidden(channel, ts)
+      const showEdits = editList.length > 0 && !isEdHidden && !isClean
 
       if (!isDeleted && !showEdits) {
         return <Original {...props} />
@@ -2059,14 +2335,24 @@ export default class MessageLogger extends TautPlugin {
           return <Original {...props} />
         }
 
-        const msg = React.useContext(this.MessageContext)
-        if (!msg?.ts) {
+        const msgInfo =
+          this.activeMenuMessage ||
+          this.findMessageFromElement(
+            typeof document !== 'undefined' ? document.activeElement : null
+          ) ||
+          (typeof document !== 'undefined' &&
+          document.querySelector('.c-menu, [role="menu"]')
+            ? this.getMessageFromFiber(
+                document.querySelector('.c-menu, [role="menu"]')
+              )
+            : null)
+
+        if (!msgInfo?.ts) {
           return <Original {...props} />
         }
 
-        const channel =
-          (msg.channel as string | undefined) || this.currentChannelId
-        const ts = msg.ts as string
+        const channel = msgInfo.channel || this.currentChannelId
+        const ts = msgInfo.ts
         const isDeleted = this.isMessageDeleted(channel, ts)
         const isEdited = this.isMessageEdited(channel, ts)
 
@@ -2080,6 +2366,7 @@ export default class MessageLogger extends TautPlugin {
 
         const isClean = this.isCleanView(channel, ts)
         const isEdHidden = this.isEditsHidden(channel, ts)
+        const isVanished = this.isMessageVanished(channel, ts)
         const extra: MenuTemplateItem[] = []
 
         if (isDeleted) {
@@ -2088,6 +2375,14 @@ export default class MessageLogger extends TautPlugin {
             label: isClean ? 'Show deletion notice' : 'Hide deletion notice',
             icon: isClean ? 'eye' : 'eye-slash',
             click: () => this.toggleCleanView(channel, ts),
+          })
+          extra.push({
+            key: 'taut-ml__toggle-vanish',
+            label: isVanished
+              ? 'Restore deleted message'
+              : 'Permanently hide deleted message',
+            icon: 'trash',
+            click: () => this.toggleVanishMessage(channel, ts),
           })
         }
         if (isEdited) {
@@ -2128,6 +2423,10 @@ export default class MessageLogger extends TautPlugin {
     if (this.keydownCleanup) {
       this.keydownCleanup()
       this.keydownCleanup = null
+    }
+    if (this.menuTrackingCleanup) {
+      this.menuTrackingCleanup()
+      this.menuTrackingCleanup = null
     }
     if (this.purgeTimer) {
       clearInterval(this.purgeTimer)
