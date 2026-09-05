@@ -547,8 +547,28 @@ export default class MessageLogger extends TautPlugin {
         if (ts) return { channel, ts }
       }
 
+      const attr =
+        row.getAttribute('data-ts') ||
+        row.getAttribute('data-message-ts') ||
+        row.id ||
+        ''
+      const match = String(attr).match(/\d{10}\.\d{6}/)
+      if (match) {
+        return { channel: this.currentChannelId, ts: match[0] }
+      }
+
       const fromFiber = this.getMessageFromFiber(row)
       if (fromFiber) return fromFiber
+    }
+
+    const attr =
+      el.getAttribute('data-ts') ||
+      el.getAttribute('data-message-ts') ||
+      el.id ||
+      ''
+    const match = String(attr).match(/\d{10}\.\d{6}/)
+    if (match) {
+      return { channel: this.currentChannelId, ts: match[0] }
     }
 
     return this.getMessageFromFiber(el)
@@ -1095,10 +1115,14 @@ export default class MessageLogger extends TautPlugin {
   }
 
   private isMessageDeleted(channel: string | undefined, ts: string): boolean {
-    return (
+    if (
       this.deleted.has(this.keyOf(channel, ts)) ||
       this.deleted.has(this.keyOf('', ts))
-    )
+    ) {
+      return true
+    }
+    const raw = this.findRawMessageByTs(ts, channel)
+    return Boolean((raw as any)?.taut_deleted)
   }
 
   private isMessageEdited(channel: string | undefined, ts: string): boolean {
@@ -1117,7 +1141,6 @@ export default class MessageLogger extends TautPlugin {
   }
 
   private isMessageVanished(channel: string | undefined, ts: string): boolean {
-    if (!this.isMessageDeleted(channel, ts)) return false
     return (
       this.vanishedMessages.has(this.keyOf(channel, ts)) ||
       this.vanishedMessages.has(this.keyOf('', ts))
@@ -1154,19 +1177,50 @@ export default class MessageLogger extends TautPlugin {
     this.api.redux.refresh()
   }
 
+  private vanishMessage(channel: string | undefined, ts: string): void {
+    const key = this.keyOf(channel, ts)
+    const altKey = this.keyOf('', ts)
+    this.vanishedMessages.add(key)
+    if (channel) this.vanishedMessages.add(altKey)
+
+    if (typeof document !== 'undefined') {
+      const selectors = [
+        `[data-taut-ml-ts="${ts}"]`,
+        `[data-ts="${ts}"]`,
+        `[data-message-ts="${ts}"]`,
+        `#message-${ts.replace('.', '-')}`,
+      ]
+      for (const sel of selectors) {
+        document.querySelectorAll(sel).forEach((el) => {
+          const row =
+            el.closest(
+              '.c-virtual_list__item, .c-message_kit__message, [data-qa="message_container"], .c-message'
+            ) || el
+          ;(row as HTMLElement).classList.add('taut-ml-vanished')
+          ;(row as HTMLElement).style.setProperty(
+            'display',
+            'none',
+            'important'
+          )
+        })
+      }
+    }
+
+    this.scheduleSave()
+    this.api.redux.refresh()
+  }
+
   private toggleVanishMessage(channel: string | undefined, ts: string): void {
-    if (!this.isMessageDeleted(channel, ts)) return
     const key = this.keyOf(channel, ts)
     const altKey = this.keyOf('', ts)
     if (this.vanishedMessages.has(key) || this.vanishedMessages.has(altKey)) {
       this.vanishedMessages.delete(key)
       this.vanishedMessages.delete(altKey)
+      this.scheduleSave()
+      this.api.redux.refresh()
     } else {
-      this.vanishedMessages.add(key)
-      if (channel) this.vanishedMessages.add(altKey)
+      this.vanishMessage(channel, ts)
     }
-    this.scheduleSave()
-    this.api.redux.refresh()
   }
 
   private toggleHideEdits(channel: string | undefined, ts: string): void {
@@ -1505,11 +1559,17 @@ export default class MessageLogger extends TautPlugin {
     const onAction = (e: Event) => {
       const target = e.target as Element | null
       if (!target) return
-      if (target.closest('.c-menu, [role="menu"]')) return
-      const found = this.findMessageFromElement(target)
-      if (found) {
-        this.activeMenuMessage = found
+      if (!target.closest('.c-menu, [role="menu"]')) {
+        const found = this.findMessageFromElement(target)
+        if (found) {
+          this.activeMenuMessage = found
+        }
       }
+      this.checkMenus()
+      requestAnimationFrame(() => this.checkMenus())
+      setTimeout(() => this.checkMenus(), 25)
+      setTimeout(() => this.checkMenus(), 75)
+      setTimeout(() => this.checkMenus(), 150)
     }
 
     window.addEventListener('contextmenu', onAction, { capture: true })
@@ -1518,6 +1578,222 @@ export default class MessageLogger extends TautPlugin {
     return () => {
       window.removeEventListener('contextmenu', onAction, { capture: true })
       window.removeEventListener('pointerdown', onAction, { capture: true })
+    }
+  }
+
+  private checkMenus(): void {
+    if (this.isTemporarilyHidden || typeof document === 'undefined') return
+    const menus = Array.from(
+      document.querySelectorAll<HTMLElement>('.c-menu, [role="menu"]')
+    )
+    for (const menu of menus) {
+      this.injectMenuItemsIntoMenu(menu)
+    }
+  }
+
+  private injectMenuItemsIntoMenu(menu: HTMLElement): void {
+    if (this.isTemporarilyHidden) return
+
+    const msgInfo =
+      this.activeMenuMessage ||
+      this.getMessageFromFiber(menu) ||
+      this.findMessageFromElement(document.activeElement)
+
+    if (!msgInfo?.ts) return
+    const channel = msgInfo.channel || this.currentChannelId
+    const ts = msgInfo.ts
+
+    const isDeleted = this.isMessageDeleted(channel, ts)
+    const isEdited = this.isMessageEdited(channel, ts)
+    if (!isDeleted && !isEdited) return
+
+    const menuKey = `${channel}:${ts}`
+    const existing = menu.querySelector('[data-taut-ml-menu]')
+    if (
+      existing &&
+      existing.getAttribute('data-taut-ml-menu-key') === menuKey
+    ) {
+      return
+    }
+
+    if (existing) {
+      menu.querySelectorAll('[data-taut-ml-menu]').forEach((el) => {
+        const row = el.closest('li, .c-menu_item__li') || el
+        row.remove()
+      })
+    }
+
+    const items = menu.querySelectorAll<HTMLElement>(
+      'button, [role="menuitem"]'
+    )
+    if (!items.length) return
+    const reference = items[items.length - 1]
+    const referenceRow = reference.closest('li, .c-menu_item__li') || reference
+
+    const isClean = this.isCleanView(channel, ts)
+    const isEdHidden = this.isEditsHidden(channel, ts)
+
+    const createMenuItem = (
+      actionKey: string,
+      label: string,
+      isDanger: boolean,
+      onClick: () => void
+    ): HTMLElement => {
+      const clone = referenceRow.cloneNode(true) as HTMLElement
+      const btn = (
+        clone.matches('button, [role="menuitem"]')
+          ? clone
+          : clone.querySelector('button, [role="menuitem"]')
+      ) as HTMLElement | null
+
+      if (!btn) return clone
+
+      clone.setAttribute('data-taut-ml-menu', actionKey)
+      clone.setAttribute('data-taut-ml-menu-key', menuKey)
+      clone.removeAttribute('id')
+      clone.querySelectorAll('[id]').forEach((el) => {
+        el.removeAttribute('id')
+      })
+
+      for (const attr of [
+        'data-qa',
+        'aria-controls',
+        'aria-describedby',
+        'aria-expanded',
+        'aria-haspopup',
+      ]) {
+        btn.removeAttribute(attr)
+      }
+
+      for (const el of [clone, ...Array.from(clone.querySelectorAll('*'))]) {
+        if (el.classList) {
+          const toRemove: string[] = []
+          for (const cls of Array.from(el.classList)) {
+            if (/highlight|selected/i.test(cls)) toRemove.push(cls)
+          }
+          for (const cls of toRemove) el.classList.remove(cls)
+        }
+        if (el.getAttribute('aria-selected') === 'true') {
+          el.setAttribute('aria-selected', 'false')
+        }
+        el.removeAttribute('aria-current')
+      }
+
+      if (isDanger) {
+        btn.classList.add('c-menu_item__button--danger')
+        btn.style.color = 'var(--dt_color-content-negative, #e01e5a)'
+      } else {
+        btn.classList.remove('c-menu_item__button--danger')
+      }
+
+      const labelEl = clone.querySelector('.c-menu_item__label')
+      if (labelEl) {
+        labelEl.textContent = label
+      } else {
+        btn.textContent = label
+      }
+
+      clone
+        .querySelectorAll('svg, .c-icon, .c-menu_item__icon')
+        .forEach((el) => {
+          el.remove()
+        })
+
+      btn.addEventListener('mouseenter', () => {
+        for (const other of Array.from(
+          menu.querySelectorAll<HTMLElement>('button, [role="menuitem"]')
+        )) {
+          if (other !== btn) {
+            const otherRow = other.closest('li, .c-menu_item__li') || other
+            for (const el of [
+              otherRow,
+              ...Array.from(otherRow.querySelectorAll('*')),
+            ]) {
+              if (el.classList) {
+                const toRemove: string[] = []
+                for (const cls of Array.from(el.classList)) {
+                  if (/highlight/i.test(cls)) toRemove.push(cls)
+                }
+                for (const cls of toRemove) el.classList.remove(cls)
+              }
+            }
+          }
+        }
+        btn.classList.add('c-menu_item__button--highlighted')
+        const rowWrapper = btn.closest('li, .c-menu_item__li')
+        if (rowWrapper) rowWrapper.classList.add('c-menu_item__li--highlighted')
+      })
+
+      btn.addEventListener('mouseleave', () => {
+        btn.classList.remove('c-menu_item__button--highlighted')
+        const rowWrapper = btn.closest('li, .c-menu_item__li')
+        if (rowWrapper)
+          rowWrapper.classList.remove('c-menu_item__li--highlighted')
+      })
+
+      btn.addEventListener('click', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+        )
+        onClick()
+      })
+
+      return clone
+    }
+
+    const newRows: HTMLElement[] = []
+
+    const existingSep = menu.querySelector(
+      '.c-menu__separator, [role="separator"]'
+    )
+    const sep = existingSep
+      ? (existingSep.cloneNode(true) as HTMLElement)
+      : document.createElement('div')
+    if (!existingSep) {
+      sep.className = 'c-menu__separator'
+      sep.setAttribute('role', 'separator')
+    }
+    sep.setAttribute('data-taut-ml-menu', 'separator')
+    sep.setAttribute('data-taut-ml-menu-key', menuKey)
+    newRows.push(sep)
+
+    if (isDeleted) {
+      newRows.push(
+        createMenuItem('delete', 'Delete message', true, () => {
+          this.vanishMessage(channel, ts)
+        })
+      )
+      newRows.push(
+        createMenuItem(
+          'clean',
+          isClean ? 'Show deletion notice' : 'Hide deletion notice',
+          false,
+          () => {
+            this.toggleCleanView(channel, ts)
+          }
+        )
+      )
+    }
+
+    if (isEdited) {
+      newRows.push(
+        createMenuItem(
+          'edits',
+          isEdHidden ? 'Show edit history' : 'Hide edit history',
+          false,
+          () => {
+            this.toggleHideEdits(channel, ts)
+          }
+        )
+      )
+    }
+
+    let insertAfter = referenceRow
+    for (const row of newRows) {
+      insertAfter.after(row)
+      insertAfter = row
     }
   }
 
@@ -2106,6 +2382,29 @@ export default class MessageLogger extends TautPlugin {
       body.taut-ml-temporarily-hidden [data-qa="message-text"] {
         color: inherit !important;
       }
+
+      .taut-ml-vanished,
+      .c-virtual_list__item.taut-ml-vanished,
+      .c-message_kit__message.taut-ml-vanished,
+      .c-virtual_list__item:has(.taut-ml-vanished),
+      .c-message_kit__message:has(.taut-ml-vanished),
+      [data-qa="message_container"]:has(.taut-ml-vanished),
+      .c-message:has(.taut-ml-vanished) {
+        display: none !important;
+      }
+
+      .c-menu_item__button--danger {
+        color: var(--dt_color-content-negative, #e01e5a) !important;
+      }
+
+      .c-menu_item__button--danger.c-menu_item__button--highlighted {
+        background-color: var(--dt_color-surf-negative-pri, #e01e5a) !important;
+        color: #ffffff !important;
+      }
+
+      .c-menu_item__button--danger.c-menu_item__button--highlighted .c-menu_item__label {
+        color: #ffffff !important;
+      }
     `)
 
     this.api.rtm.on('message', (event) => {
@@ -2116,11 +2415,10 @@ export default class MessageLogger extends TautPlugin {
       if (!bucket || typeof bucket !== 'object') return bucket
       return this.api.redux.mapEntries<SlackMessage>(bucket, (ts, msg) => {
         if (!msg) return msg
-        const key = this.keyOf(channelId, ts)
-        if (this.vanishedMessages.has(key)) {
-          if (this.deleted.has(key)) return undefined
-          return msg
+        if (this.isMessageVanished(channelId, ts)) {
+          return undefined
         }
+        const key = this.keyOf(channelId, ts)
         const deletedRecord =
           this.deleted.get(key) || this.deleted.get(this.keyOf('', ts))
         if (deletedRecord) {
@@ -2175,7 +2473,31 @@ export default class MessageLogger extends TautPlugin {
               }
             }
           }
-          return threadObj
+
+          let nextThreadObj = threadObj
+          if (Array.isArray(threadObj.replies)) {
+            const filteredReplies = threadObj.replies.filter(
+              (r: any) => !r?.ts || !this.isMessageVanished(channelId, r.ts)
+            )
+            if (filteredReplies.length !== threadObj.replies.length) {
+              nextThreadObj = { ...nextThreadObj, replies: filteredReplies }
+            }
+          }
+          if (threadObj.messages && typeof threadObj.messages === 'object') {
+            let messagesChanged = false
+            const nextMessages: Record<string, any> = {}
+            for (const [mTs, mMsg] of Object.entries(threadObj.messages)) {
+              if (this.isMessageVanished(channelId, mTs)) {
+                messagesChanged = true
+              } else {
+                nextMessages[mTs] = mMsg
+              }
+            }
+            if (messagesChanged) {
+              nextThreadObj = { ...nextThreadObj, messages: nextMessages }
+            }
+          }
+          return nextThreadObj
         }
       )
     })
@@ -2193,7 +2515,7 @@ export default class MessageLogger extends TautPlugin {
         ) {
           continue
         }
-        if (!this.vanishedMessages.has(key)) {
+        if (!this.isMessageVanished(msg.channel, ts)) {
           injected.push(msg)
         }
       }
@@ -2202,19 +2524,29 @@ export default class MessageLogger extends TautPlugin {
 
     for (const name of [
       'MessageWrapper',
+      'Message',
       'ThreadRootGeneric',
       'ActivityItem',
       'ThreadSenderAndTimestampGeneric',
       'BroadcastPreamble',
       'SearchResult',
     ]) {
-      this.api.patchComponent<{ msg?: SlackMessage }>(
+      this.api.patchComponent<{ msg?: SlackMessage; message?: SlackMessage }>(
         name,
-        (Original) => (props) => (
-          <this.MessageContext.Provider value={props.msg}>
-            <Original {...props} />
-          </this.MessageContext.Provider>
-        )
+        (Original) => (props) => {
+          const msg = props?.msg || props?.message
+          const channel =
+            (msg?.channel as string | undefined) || this.currentChannelId
+          const ts = msg?.ts as string | undefined
+          if (ts && this.isMessageVanished(channel, ts)) {
+            return null
+          }
+          return (
+            <this.MessageContext.Provider value={msg}>
+              <Original {...props} />
+            </this.MessageContext.Provider>
+          )
+        }
       )
     }
 
@@ -2327,6 +2659,28 @@ export default class MessageLogger extends TautPlugin {
       )
     })
 
+    for (const menuComp of [
+      'MessageActionsMenu',
+      'MessageActionsContextMenu',
+      'MessageActionsOverflowMenu',
+    ]) {
+      this.api.patchComponent<{ ts?: string; channelId?: string }>(
+        menuComp,
+        (Original) => (props) => {
+          if (props?.ts) {
+            this.activeMenuMessage = {
+              channel: props.channelId || this.currentChannelId,
+              ts: props.ts,
+            }
+            requestAnimationFrame(() => this.checkMenus())
+            setTimeout(() => this.checkMenus(), 25)
+            setTimeout(() => this.checkMenus(), 75)
+          }
+          return <Original {...props} />
+        }
+      )
+    }
+
     this.api.patchComponent<MenuFromTemplateProps>(
       'MenuFromTemplate',
       (Original) => (props) => {
@@ -2366,23 +2720,20 @@ export default class MessageLogger extends TautPlugin {
 
         const isClean = this.isCleanView(channel, ts)
         const isEdHidden = this.isEditsHidden(channel, ts)
-        const isVanished = this.isMessageVanished(channel, ts)
         const extra: MenuTemplateItem[] = []
 
         if (isDeleted) {
+          extra.push({
+            key: 'taut-ml__delete',
+            label: 'Delete message',
+            icon: 'trash',
+            click: () => this.vanishMessage(channel, ts),
+          })
           extra.push({
             key: 'taut-ml__toggle-clean',
             label: isClean ? 'Show deletion notice' : 'Hide deletion notice',
             icon: isClean ? 'eye' : 'eye-slash',
             click: () => this.toggleCleanView(channel, ts),
-          })
-          extra.push({
-            key: 'taut-ml__toggle-vanish',
-            label: isVanished
-              ? 'Restore deleted message'
-              : 'Permanently hide deleted message',
-            icon: 'trash',
-            click: () => this.toggleVanishMessage(channel, ts),
           })
         }
         if (isEdited) {
@@ -2439,6 +2790,12 @@ export default class MessageLogger extends TautPlugin {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer)
       this.saveTimer = null
+    }
+    if (typeof document !== 'undefined') {
+      document.querySelectorAll('[data-taut-ml-menu]').forEach((el) => {
+        const row = el.closest('li, .c-menu_item__li') || el
+        row.remove()
+      })
     }
     document.body.classList.remove('taut-ml-temporarily-hidden')
     void this.persistState()
